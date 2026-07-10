@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>MySchedule</title>
+  <link rel="stylesheet" href="styles.css?v=145" />
+  <link rel="stylesheet" href="invitation-v138.css?v=145" />
+  <link rel="stylesheet" href="automation-v140.css?v=145" />
+  <link rel="stylesheet" href="multibusiness-v141.css?v=145" />
+  <link rel="stylesheet" href="business-management-v142.css?v=145" />
+  <link rel="stylesheet" href="security-email-v144.css?v=145" />
+</head>
+<body class="logged-out">
+  <div id="toast" aria-label="Important status messages"></div>
+  <header class="topbar">
+    <button class="brand brand-home" onclick="goHomeLogo()" title="Go to home" aria-label="Go to MySchedule home">
+      <div class="logo">MS</div>
+      <div>
+        <h1>MySchedule</h1>
+        <p>Workforce scheduling for teams.</p>
+      </div>
+    </button>
+    <div class="top-actions">
+      <button id="topInboxBtn" onclick="go('notifications')" class="top-inbox hidden" aria-label="Open inbox" title="Inbox">
+        <span class="mail-icon">✉</span><span class="inbox-text">Inbox</span><span id="topInboxCount" class="top-inbox-count hidden">0</span>
+      </button>
+      <details id="profileMenu" class="profile-menu hidden">
+        <summary aria-label="Open profile menu" title="Profile">
+          <span id="topProfileAvatar" class="top-profile-avatar">MS</span>
+          <span id="topProfileName" class="top-profile-name">Profile</span>
+          <span class="top-profile-caret">⌄</span>
+        </summary>
+        <div class="profile-menu-panel">
+          <button onclick="go('profile'); closeProfileMenu()">Profile</button>
+          <button onclick="go(isManagerial(currentUser()) ? 'dashboard' : 'myshifts'); closeProfileMenu()">Home</button>
+          <button onclick="logout()" class="danger-text">Logout</button>
+        </div>
+      </details>
+    </div>
+  </header>
+  <main id="app"></main>
+
+  <!-- Firebase browser SDK: works on free static hosting such as GitHub Pages. -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-functions-compat.js"></script>
+  <!-- Optional: set a domain-restricted Google Maps Platform key to enable Google Places business suggestions. -->
+  <script>window.MYSCHEDULE_GOOGLE_MAPS_API_KEY = window.MYSCHEDULE_GOOGLE_MAPS_API_KEY || "";</script>
+  <script src="invite-core.js?v=145"></script>
+  <script src="app.js?v=145"></script>
+  <script src="invitation-v138.js?v=145"></script>
+  <script src="invitation-setup-v138.js?v=145"></script>
+  <script src="automation-v140.js?v=145"></script>
+  <script src="multibusiness-v141.js?v=145"></script>
+  <script src="business-management-v142.js?v=145"></script>
+  <script src="security-email-v145.js?v=145"></script>
+</body>
+</html>
