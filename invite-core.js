@@ -146,7 +146,7 @@
     // Revoke every old pending invitation for the same profile/email.
     const revokedTokenHashes=[];
     state.accessInvitations.forEach(i=>{
-      if(i.status==='pending'&&(i.userId===userId||normalizeEmail(i.email)===data.email)){
+      if(i.businessId===ctx.businessId&&i.status==='pending'&&(i.userId===userId||normalizeEmail(i.email)===data.email)){
         if(i.tokenHash||i.id)revokedTokenHashes.push(i.tokenHash||i.id);
         i.status='revoked';i.revokedAt=ctx.now;i.replacedBy=ctx.tokenHash;
       }

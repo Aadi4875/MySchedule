@@ -1,58 +1,75 @@
-# MySchedule v146
+# MySchedule
 
-## What was fixed
+Static workforce scheduling frontend: HTML, CSS and vanilla JavaScript. Firebase
+10.12.5 browser SDKs provide Authentication, Firestore and callable Functions.
+Email uses a Cloudflare Worker/Brevo integration. No React or application server
+is included. Node.js is used only for local tooling.
 
-The published GitHub Pages website no longer sends report email through the Firebase `sendTransactionalEmail` callable that was returning `Internal`.
+## Run locally
 
-The new route is:
+Use Node.js 22 or newer:
 
-`GitHub Pages -> Firebase ID token -> Cloudflare Worker -> Brevo`
+```sh
+npm ci
+npm start
+```
 
-The Worker:
+Open http://localhost:8000. To use another port on macOS/Linux:
+`PORT=8080 npm start`. The local server binds to loopback and serves only the
+validated `dist` directory. GitHub Pages can still serve the root static files.
 
-- permits the published GitHub origin;
-- verifies the Firebase ID-token signature and verified email;
-- loads the selected MySchedule business;
-- checks owner/manager/employee permissions;
-- restricts recipients to the selected business;
-- sends structured HTML through Brevo;
-- returns clear errors instead of `Internal` or raw `Failed to fetch`;
-- optionally prevents duplicate sends using the `EMAIL_REQUESTS` KV binding.
+## Configuration
 
-The same gateway is now used by manual reports, invitations, reminders, notifications and test email.
+`config.js` contains optional public browser settings for Firebase, the email
+Worker URL, and Google Places. Existing built-in Firebase and Worker settings
+remain the defaults. A Firebase configuration previously saved in browser storage
+takes precedence. Authorize localhost in your Firebase Authentication project
+before testing real sign-in. The email Worker must allow your local origin.
 
-## Required rollout
+`.env.example` documents server-side deployment variables; the browser does not
+read `.env`. Never place Brevo keys or other server credentials in `config.js`.
+The Google Places key is optional and should be restricted by origin and API.
 
-### A. Update the existing Cloudflare Worker once
+## Checks
 
-See `cloudflare-worker/README.md`. Use the supplied `worker-v146.js` while keeping the existing Worker URL.
+```sh
+npm run lint
+npm test
+npm run build
+```
 
-Required Worker configuration:
+Build checks JavaScript syntax and every local HTML asset reference before copying
+assets to `dist`. ESLint checks a focused set of correctness rules; it is not a
+comprehensive security audit. Node tests cover invitation validation and isolation,
+plus jsdom startup and route rendering for owner, manager and employee fixtures.
+DOM tests disable networking and do not verify real authentication or persistence.
 
-- secret `BREVO_API_KEY`;
-- variable `FROM_EMAIL` containing a sender verified by Brevo;
-- variable `FROM_NAME=MySchedule`;
-- variable `FIREBASE_PROJECT_ID=myschedule-8f213`;
-- variable `ALLOWED_ORIGINS=https://aadi4875.github.io`.
+## Repository gaps and verification limits
 
-### B. Upload the GitHub website
+The original HTML referenced eight absent extension assets for automation,
+multiple businesses, business management and email security. Those references
+were removed to eliminate guaranteed 404s; the missing extensions were not
+reconstructed. Corresponding extension-specific functionality remains unavailable.
+The supplied app and invitation modules still provide the existing base screens.
 
-Replace every file using `UPLOAD_TO_GITHUB`. Remove the old `security-email-v144.js` file from the repository.
+The original README also referenced `cloudflare-worker/worker-v146.js`, Firebase
+Functions, rules, indexes and upload bundles. None are present in this checkout
+(the repository has one initial upload commit). Backend deployment cannot be
+reproduced from this repository. Obtain those original sources before claiming
+end-to-end production readiness. Do not weaken Firestore rules to work around
+missing services.
 
-### C. Optional Firebase deployment
+Real sign-in, database authorization/persistence, report/invitation email, owner
+OTP flows and scheduled automation require the corresponding configured services
+and separate integration testing. No live business records or emails were changed
+during local verification. Chromium installation failed in the execution
+environment, so visual browser QA has not been completed.
 
-Email from the open GitHub website does not need the Firebase email callable. Firebase Functions remain necessary for owner OTP business creation/deletion and closed-browser scheduled automation. Deploy those once with the v146 owner OTP script.
+## Repairs
 
-## Production test
-
-After GitHub and Worker deployment:
-
-1. Sign out and sign in again.
-2. Send `Settings -> Email Notifications -> Send Test to My Email`.
-3. Send a report from the Report Delivery Centre.
-4. Create one test invitation.
-5. Confirm all three messages arrive and show a sent status in MySchedule.
-
-
-## v146 sender configuration repair
-The Worker now accepts a plain sender email and safely normalises common Cloudflare dashboard mistakes such as quoted values, `FROM_EMAIL = address`, or `MySchedule <address>`. The health endpoint shows only a masked sender and configuration booleans. Deploy `cloudflare-worker/worker-v146.js`, then open the Worker URL and confirm `version: 146.0.0`, `brevoKeyConfigured: true`, and `fromEmailValid: true`.
+- Scoped invitation replacement to the selected business: the same email in a
+  different business no longer has its pending invitation revoked.
+- Removed missing static asset references and replaced misleading setup steps.
+- Added startup failure handling with a retry screen.
+- Added public configuration hooks, a server environment reference, reproducible
+  dependency lockfile, local server, build checks, linting and regression tests.

@@ -1,0 +1,1 @@
+module.exports = [{ignores:["dist/**","node_modules/**"]},{files:['*.js'],languageOptions:{ecmaVersion:'latest',sourceType:'script'},rules:{'no-unreachable':'error','no-dupe-args':'error','no-constant-condition':['error',{checkLoops:false}],'valid-typeof':'error'}}];

@@ -34,7 +34,7 @@ const LEGACY_CURRENT_KEY = "myschedule_v9_current_user";
 const EMAILJS_DEFAULTS = {
   provider: "brevo_worker",
   enabled: true,
-  workerUrl: "https://myschedule-email.adityapatelap591.workers.dev",
+  workerUrl: window.MYSCHEDULE_EMAIL_WORKER_URL || "https://myschedule-email.adityapatelap591.workers.dev",
   fromName: "MySchedule Notification",
   replyTo: "",
   appUrl: "",
@@ -55,7 +55,7 @@ function getFirebaseConfig(){
   try{
     const raw = localStorage.getItem(FIREBASE_CONFIG_KEY);
     // If user manually saved a config, use it. Otherwise use the built-in config automatically.
-    return raw ? JSON.parse(raw) : BUILT_IN_FIREBASE_CONFIG;
+    return raw ? JSON.parse(raw) : (window.MYSCHEDULE_FIREBASE_CONFIG || BUILT_IN_FIREBASE_CONFIG);
   }catch(e){
     return BUILT_IN_FIREBASE_CONFIG;
   }
@@ -4254,7 +4254,11 @@ async function boot(){
   await syncFirebaseAuthSession();
   render();
 }
-boot();
+boot().catch(error => {
+  console.error("MySchedule startup failed", error);
+  const app = el("app");
+  if(app) app.innerHTML = '<section class="auth-wrap"><div class="auth-card card"><h2>Unable to start MySchedule</h2><p>Please check your connection and reload.</p><button onclick="location.reload()">Retry</button></div></section>';
+});
 
 /* v57 workforce essentials: clock, breaks, timesheets, shift acknowledgement, notice board */
 function ensureOperationsData(){
