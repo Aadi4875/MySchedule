@@ -73,3 +73,14 @@ environment, so visual browser QA has not been completed.
 - Added startup failure handling with a retry screen.
 - Added public configuration hooks, a server environment reference, reproducible
   dependency lockfile, local server, build checks, linting and regression tests.
+
+## Email request contract repair
+
+The supplied Worker source is now preserved at
+`cloudflare-worker/worker-v147.mjs` (unchanged from the uploaded `.js` file).
+This supersedes the earlier note that no Worker source is available; Firebase
+backend sources remain absent. Adding this file does not deploy it to Cloudflare.
+Browser mail requests now include `action: "send-email"`, a unique `requestId`,
+`businessId`, `templateType`, `toName`, and a Firebase bearer token.
+A contract test executes this Worker using a locally signed test token and mocked
+Firebase/Brevo responses. It verifies request compatibility, not inbox delivery.

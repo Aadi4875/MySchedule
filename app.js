@@ -3158,11 +3158,13 @@ async function sendEmail(payload){
   const html = compactEmailHtml(payload.html_message || payload.message || "");
   const plainText = String(payload.message || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   const requestBody = {
+    action: "send-email",
+    requestId: payload.requestId || uuid(),
     businessId: payload.businessId || payload.business_id || business()?.id,
-    type: payload.templateType || payload.recipientSource || "notification",
+    templateType: payload.templateType || payload.recipientSource || "notification",
     to: actualRecipient,
     replyTo: ownerReplyEmail || undefined,
-    employeeName: payload.to_name || actualRecipient,
+    toName: payload.to_name || actualRecipient,
     businessName: payload.business_name || business()?.name || "MySchedule",
     subject: payload.subject || "MySchedule notification",
     html,
