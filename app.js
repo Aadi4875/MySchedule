@@ -3158,10 +3158,12 @@ async function sendEmail(payload){
   const html = compactEmailHtml(payload.html_message || payload.message || "");
   const plainText = String(payload.message || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   const requestBody = {
+    businessId: payload.businessId || payload.business_id || business()?.id,
+    type: payload.templateType || payload.recipientSource || "notification",
     to: actualRecipient,
     replyTo: ownerReplyEmail || undefined,
     employeeName: payload.to_name || actualRecipient,
-    businessName: payload.business_name || business().name,
+    businessName: payload.business_name || business()?.name || "MySchedule",
     subject: payload.subject || "MySchedule notification",
     html,
     text: plainText
@@ -3178,23 +3180,28 @@ async function sendEmail(payload){
 
   if(!c.enabled){
     updateEmailStatus(payload.noteId, "sent_demo", "Email notifications are paused. The notification was saved inside MySchedule only.");
-    return;
+    return {ok:false, error:"Email notifications are paused."};
   }
   if(!isValidEmail(actualRecipient)){
     updateEmailStatus(payload.noteId, "invalid_recipient", "Recipient email is invalid: " + actualRecipient);
     toast("Email blocked: invalid recipient.");
-    return;
+    return {ok:false, error:"Recipient email is invalid."};
   }
   if(!/^https:\/\/[^\s]+\.workers\.dev(?:\/.*)?$/i.test(workerUrl)){
     updateEmailStatus(payload.noteId, "missing_settings", "A valid Cloudflare Worker URL is required.");
     toast("Email setup incomplete: check the Cloudflare Worker URL.");
-    return;
+    return {ok:false, error:"A valid Cloudflare Worker URL is required."};
   }
 
   try{
+    const authUser = firebaseAuth?.currentUser;
+    if(!authUser) throw new Error("Sign in again before sending email.");
+    if(!authUser.emailVerified) throw new Error("Verify your account email before sending email.");
+    if(!requestBody.businessId) throw new Error("Select a workplace before sending email.");
+    const idToken = await authUser.getIdToken();
     const response = await fetch(workerUrl, {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", "Authorization": `Bearer ${idToken}`},
       body: JSON.stringify(requestBody)
     });
     let result = {};
@@ -3211,6 +3218,7 @@ async function sendEmail(payload){
     });
     updateEmailStatus(payload.noteId, "sent_real", "Brevo accepted the email for " + actualRecipient);
     toast("Email sent to " + actualRecipient);
+    return {ok:true, messageId:result.messageId || ""};
   }catch(err){
     console.error("Brevo Worker send failed:", err);
     const msg = err && err.message ? err.message : String(err || "Unknown email error.");
@@ -3223,6 +3231,7 @@ async function sendEmail(payload){
     });
     updateEmailStatus(payload.noteId, "failed", msg);
     toast("Email failed: " + msg);
+    return {ok:false, error:msg};
   }
 }
 function updateEmailStatus(noteId,status,errorMessage=""){
