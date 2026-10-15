@@ -17,7 +17,7 @@
   function isoNow(){return new Date().toISOString();}
   function randomHex(bytes=24){
     const out=new Uint8Array(bytes);
-    if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(out);else for(let i=0;i<bytes;i++)out[i]=Math.floor(Math.random()*256);
+    if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(out);else throw appError('secure-random-unavailable','Use a secure browser connection to create invitations.');
     return Array.from(out,b=>b.toString(16).padStart(2,'0')).join('');
   }
   function uid(){return typeof uuid==='function'?uuid():randomHex(16);}
@@ -203,6 +203,7 @@
         // The same verified identity may accept memberships in multiple businesses.
         // Access remains isolated by businessId and the active membership switcher.
         const profile=(remote.users||[]).find(u=>u.id===invite.userId);if(!profile)throw appError('not-found','The invited team profile was not found.');
+        if(profile.businessId!==invite.businessId||Core.normalizeEmail(profile.email)!==email||profile.role!==invite.role||!['employee','manager'].includes(invite.role)||profile.status!=='invited'||profile.activeInvitationId!==hash||(profile.authUid&&profile.authUid!==auth.uid))throw appError('permission-denied','The invitation does not match the current workplace membership. Ask the owner to resend it.');
         Object.assign(profile,{authUid:auth.uid,emailVerified:true,status:'active',acceptedAt,linkedAt:acceptedAt,accountSource:'manager_invite',activeInvitationId:'',updatedAt:acceptedAt});
         invite.status='accepted';invite.acceptedAt=acceptedAt;invite.acceptedByUid=auth.uid;
         (remote.notifications||[]).forEach(n=>{if(n.userId===profile.id&&n.actionKind==='accept_invitation'){n.requiresAction=false;n.actionStatus='resolved';n.resolvedAt=acceptedAt;n.read=true;}});

@@ -7,10 +7,13 @@ test('frontend starts without Firebase and public navigation renders',async()=>{
  const dom=new JSDOM(fs.readFileSync('index.html','utf8'),{url:'http://localhost:8000',runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc});
  const w=dom.window;w.matchMedia=()=>({matches:false,addListener(){},addEventListener(){}});w.scrollTo=()=>{};w.fetch=async()=>{throw new Error('Network disabled in test');};
  try{
-  for(const file of ['config.js','invite-core.js','app.js','invitation-v138.js','invitation-setup-v138.js'])w.eval(fs.readFileSync(file,'utf8')+(file==='app.js'?`
+  for(const file of ['config.js','invite-core.js','app.js','invitation-v138.js','auth-simple.js','invitation-setup-v138.js'])w.eval(fs.readFileSync(file,'utf8')+(file==='app.js'?`
 window.testWorkspace = function(role){ state=migrateState(defaultState()); const user={id:'test-user',businessId:'test-business',name:'Test User',email:'test@example.com',role,status:'active'}; state.users.push(user);state.businesses.push({id:'test-business',name:'Test Business',timezone:'Australia/Perth'}); currentUserId=user.id;currentUser=function(){return user;};render(); };`:''));
   await new Promise(resolve=>setTimeout(resolve,100));
   assert.match(w.document.querySelector('#app').textContent,/sign in/i);
+  assert.equal(w.document.querySelector('#login-box').tagName,'FORM');
+  assert.equal(w.document.querySelector('#signup-type').type,'hidden');
+  assert.equal(w.document.querySelectorAll('#signup-box > input:not([type=hidden]), #signup-business-fields > input:not([type=hidden])').length,4);
   for(const mode of ['signup','forgot','login']){w.setAuthMode(mode);assert.ok(w.document.querySelector('#app').textContent.length>100);}
   for(const role of ['owner','manager','employee']){
    w.testWorkspace(role);

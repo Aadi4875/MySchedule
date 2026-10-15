@@ -8,11 +8,7 @@
   const PROOF_KEY='myschedule_v138_recipient_proof';
   const EMAIL_KEY='myschedule_v138_invited_email';
   const PENDING_KEY='myschedule_v133_pending_access';
-  const COMMON_PASSWORDS=new Set([
-    'password','password1','password123','qwerty123','letmein123','welcome123',
-    'admin123','myschedule','myschedule123','123456789012','iloveyou123'
-  ]);
-  const flow={token:'',proof:'',summary:null,email:'',busy:false,initialized:false,lastVerificationSentAt:0};
+  const flow={token:'',proof:'',summary:null,email:'',busy:false,mode:'create',initialized:false,lastVerificationSentAt:0};
 
   const originalLoginView=typeof window.loginView==='function'?window.loginView:null;
   const originalLogout=typeof window.logout==='function'?window.logout:null;
@@ -28,7 +24,10 @@
       const url=new URL(window.location.href);
       const token=url.searchParams.get('invite');
       const proof=url.searchParams.get('recipient');
-      if(token&&token.length>30)storageSet(TOKEN_KEY,token);
+      if(token&&token.length>30){
+        if(token!==storageGet(TOKEN_KEY)){storageSet(PROOF_KEY,'');storageSet(EMAIL_KEY,'');storageSet(PENDING_KEY,'');}
+        storageSet(TOKEN_KEY,token);
+      }
       if(proof&&/^[a-f0-9]{64}$/i.test(proof))storageSet(PROOF_KEY,proof.toLowerCase());
       if(token||proof||url.searchParams.has('setup')){
         url.searchParams.delete('invite');url.searchParams.delete('recipient');url.searchParams.delete('setup');
@@ -106,11 +105,7 @@
           <h1 id="v138BusinessName">Join your team</h1>
           <p id="v138InviteDescription">Checking the invitation securely…</p>
           <div class="v138-invite-facts" id="v138InviteFacts" aria-live="polite"></div>
-          <ol class="v138-setup-steps" aria-label="Account setup steps">
-            <li><span>1</span><div><strong>Confirm your invited email</strong><small>The email is checked without displaying it publicly.</small></div></li>
-            <li><span>2</span><div><strong>Create a private password or sign in</strong><small>MySchedule never emails or stores a temporary password.</small></div></li>
-            <li><span>3</span><div><strong>Verify and enter the workplace</strong><small>Your one-time invitation is accepted automatically.</small></div></li>
-          </ol>
+          <p class="v138-verify-help">Enter your invited email and a password, then verify your email. Your workplace is selected automatically.</p>
         </aside>
         <main class="v138-setup-card" aria-labelledby="v138SetupTitle">
           <div id="v138SetupStatus" class="v138-status" role="status" aria-live="polite">
@@ -168,59 +163,32 @@
   }
   function showEmailStep(message=''){
     const host=body();if(!host)return;
-    setStatus('Invitation ready','Confirm the exact email address that received the invitation.','success');
-    host.innerHTML=`<form class="v138-form" onsubmit="v138CheckInviteEmail(event)" novalidate>
-      <div class="v138-form-heading"><span class="v138-step-label">Step 1 of 3</span><h2 id="v138SetupTitle">Confirm your invited email</h2><p>Use the email address where this invitation was delivered.</p></div>
-      <div id="v138InlineMessage" class="v138-inline ${message?'warning':''}" ${message?'':'hidden'}>${h(message)}</div>
-      <label for="v138InviteEmail">Invited email address</label>
-      <input id="v138InviteEmail" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" value="${h(flow.email)}" placeholder="name@company.com" required>
-      <button class="v138-primary" data-v138-primary type="submit">Continue securely</button>
+    const signingIn=flow.mode==='signin';
+    setStatus('Join your workplace','Only the invited email can accept this invitation.','success');
+    host.innerHTML=`<form class="v138-form" onsubmit="v138SubmitInvite(event)">
+      <div class="v138-form-heading"><h2 id="v138SetupTitle">${signingIn?'Sign in and join':'Create your account'}</h2><p>${signingIn?'Use your existing MySchedule password.':'Already invited? You do not need a workplace code or a separate approval.'}</p></div>
+      <div id="v138InlineMessage" class="v138-inline warning" ${message?'':'hidden'}>${h(message)}</div>
+      <label for="v138InviteEmail">Invited email</label>
+      <input id="v138InviteEmail" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" value="${h(flow.email)}" required>
+      <label for="v138AccountPassword">${signingIn?'Password':'Create password'}</label>
+      <div class="v138-password-wrap"><input id="v138AccountPassword" type="password" autocomplete="${signingIn?'current-password':'new-password'}" maxlength="128" required><button class="v138-password-toggle" type="button" onclick="v138TogglePassword('v138AccountPassword',this)" aria-label="Show password">Show</button></div>
+      ${signingIn?'':'<p class="small muted">Use 8 or more characters with uppercase, lowercase, a number and a symbol.</p>'}
+      <button class="v138-primary" data-v138-primary type="submit">${signingIn?'Sign in and join team':'Create account and join team'}</button>
+      <button class="v138-link-button" type="button" onclick="${signingIn?'v138ShowCreate()':'v138ShowSignIn()'}">${signingIn?'New to MySchedule? Create account':'Already have an account? Sign in'}</button>
+      ${signingIn?'<button class="v138-link-button" type="button" onclick="v138SendInvitePasswordReset()">Forgot password?</button>':''}
       ${footerButtons()}
     </form>`;
-    setTimeout(()=>document.getElementById('v138InviteEmail')?.focus(),30);
   }
-  function showCreateStep(){
-    const host=body();if(!host)return;
-    setStatus('Email confirmed','Create a private password for your MySchedule account.','success');
-    host.innerHTML=`<form class="v138-form" onsubmit="v138CreateInvitedAccount(event)" novalidate>
-      <div class="v138-form-heading"><span class="v138-step-label">Step 2 of 3</span><h2 id="v138SetupTitle">Create your private password</h2><p>This password is for <strong>${h(flow.email)}</strong>. It is never shared with your manager.</p></div>
-      <div id="v138InlineMessage" class="v138-inline" hidden></div>
-      <label for="v138NewPassword">New password</label>
-      <div class="v138-password-wrap"><input id="v138NewPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" oninput="v138UpdatePasswordStrength()" placeholder="At least 8 characters" required><button type="button" class="v138-password-toggle" data-keep-enabled="true" onclick="v138TogglePassword('v138NewPassword',this)" aria-label="Show password">Show</button></div>
-      <div class="v138-strength" aria-live="polite"><div class="v138-strength-track"><span id="v138StrengthBar"></span></div><strong id="v138StrengthText">Start typing a password</strong></div>
-      <ul class="v138-password-rules" id="v138PasswordRules">
-        <li data-rule="length">8–128 characters</li><li data-rule="upper">One uppercase letter</li><li data-rule="lower">One lowercase letter</li><li data-rule="number">One number</li><li data-rule="symbol">One symbol</li>
-      </ul>
-      <label for="v138ConfirmPassword">Confirm password</label>
-      <div class="v138-password-wrap"><input id="v138ConfirmPassword" type="password" autocomplete="new-password" maxlength="128" oninput="v138UpdatePasswordStrength()" placeholder="Enter it again" required><button type="button" class="v138-password-toggle" data-keep-enabled="true" onclick="v138TogglePassword('v138ConfirmPassword',this)" aria-label="Show confirmation password">Show</button></div>
-      <button class="v138-primary" data-v138-primary id="v138CreateButton" type="submit" disabled>Create account and verify email</button>
-      <button class="v138-secondary" type="button" onclick="v138ShowSignIn()">I already have a MySchedule password</button>
-      ${footerButtons()}
-    </form>`;
-    setTimeout(()=>document.getElementById('v138NewPassword')?.focus(),30);
-  }
-  function showSignInStep(message=''){
-    const host=body();if(!host)return;
-    setStatus('Email confirmed','Sign in to accept the workplace invitation.','success');
-    host.innerHTML=`<form class="v138-form" onsubmit="v138SignInInvitedAccount(event)" novalidate>
-      <div class="v138-form-heading"><span class="v138-step-label">Step 2 of 3</span><h2 id="v138SetupTitle">Sign in to continue</h2><p>Use the existing MySchedule password for <strong>${h(flow.email)}</strong>.</p></div>
-      <div id="v138InlineMessage" class="v138-inline ${message?'warning':''}" ${message?'':'hidden'}>${h(message)}</div>
-      <label for="v138ExistingPassword">Password</label>
-      <div class="v138-password-wrap"><input id="v138ExistingPassword" type="password" autocomplete="current-password" maxlength="128" placeholder="Enter your password" required><button type="button" class="v138-password-toggle" data-keep-enabled="true" onclick="v138TogglePassword('v138ExistingPassword',this)" aria-label="Show password">Show</button></div>
-      <button class="v138-primary" data-v138-primary type="submit">Sign in and accept invitation</button>
-      <div class="v138-action-row"><button class="v138-link-button" type="button" onclick="v138SendInvitePasswordReset()">Forgot password?</button><button class="v138-link-button" type="button" onclick="v138ShowCreate()">Create a new account</button></div>
-      ${footerButtons()}
-    </form>`;
-    setTimeout(()=>document.getElementById('v138ExistingPassword')?.focus(),30);
-  }
+  function showCreateStep(){flow.mode='create';showEmailStep();}
+  function showSignInStep(message=''){flow.mode='signin';showEmailStep(message);}
   function showVerifyStep(message='Verification email sent. Open it, then return here.'){
     const host=body();if(!host)return;
     setStatus('Verify your email','Your account is created, but workplace access remains locked until verification.','warning');
     host.innerHTML=`<div class="v138-form v138-verify-panel">
-      <div class="v138-form-heading"><span class="v138-step-label">Step 3 of 3</span><h2 id="v138SetupTitle">Check your inbox</h2><p>We sent a verification link to <strong>${h(flow.email)}</strong>.</p></div>
+      <div class="v138-form-heading"><h2 id="v138SetupTitle">Check your inbox</h2><p>We sent a verification link to <strong>${h(flow.email)}</strong>.</p></div>
       <div id="v138InlineMessage" class="v138-inline success">${h(message)}</div>
       <div class="v138-mail-illustration" aria-hidden="true">✉</div>
-      <p class="v138-verify-help">Open the verification email on this device or another device. Then return and continue. Check Spam or Junk if it is not visible.</p>
+      <p class="v138-verify-help">Open the verification email on this device or another device. This page continues automatically when verification is complete. Check Spam or Junk if it is not visible.</p>
       <button class="v138-primary" data-v138-primary type="button" onclick="v138FinishVerification()">I verified my email — continue</button>
       <button class="v138-secondary" type="button" onclick="v138ResendVerification()">Resend verification email</button>
       <button class="v138-link-button v138-centered" type="button" onclick="v138ShowSignIn('Already verified on another device? Sign in here to finish setup.')">Sign in after verifying on another device</button>
@@ -295,6 +263,7 @@
       const user=(window.firebaseAuth||firebase.auth()).currentUser;
       if(!user?.emailVerified){showVerifyStep('Email verification is not complete yet.');return;}
       if(!(await emailMatchesInvite(user.email)))throw new Error('This signed-in email does not match the invitation.');
+      await user.getIdToken(true);
       const api=window.MyScheduleInvitationV138||window.MyScheduleInvitationV137;
       let accepted=null,last=null;
       for(let attempt=0;attempt<3;attempt++){
@@ -304,77 +273,61 @@
       if(!accepted)throw last||new Error('The invitation could not be accepted.');
       setStatus('Access activated','Loading your workplace securely…','success');
       storageSet(PENDING_KEY,'');
-      const cloud=await loadFirebaseState();
+      const cloud=accepted.state||await loadFirebaseState();
       if(!cloud)throw new Error('Workplace access was activated, but the workspace could not be loaded. Refresh and sign in.');
       state=migrateState(cloud);
       try{startFirebaseLiveUpdates();}catch(_e){}
       clearInvite();
-      await finishAuthLogin(user);
+      await finishAuthLogin(user,{userId:accepted.userId,businessId:accepted.businessId});
     }catch(error){
       console.error('v138 invitation acceptance',error);
       const text=friendlyError(error);
-      if(/already accepted|no longer pending|not found/i.test(text)){
-        clearInvite();
-        try{
-          const cloud=await loadFirebaseState();
-          if(cloud){state=migrateState(cloud);await finishAuthLogin((firebaseAuth||firebase.auth()).currentUser);return;}
-        }catch(_e){}
-      }
       showInline(text,'error');
       setStatus('Setup needs attention',text,'error');
     }finally{if(ownsBusy)setBusy(false);}
   }
 
-  window.v138CheckInviteEmail=async function(event){
+  window.v138SubmitInvite=async function(event){
     event?.preventDefault();if(flow.busy)return;
-    const email=normalizeEmail(document.getElementById('v138InviteEmail')?.value||'');
-    if(!validEmail(email))return showInline('Enter a complete email address.','error');
-    setBusy(true,'Checking email…');showInline('');
+    const email=normalizeEmail(document.getElementById('v138InviteEmail')?.value);
+    if(!validEmail(email))return showInline('Enter your invited email.');
+    // Match locally before making any Firebase account request; the transaction
+    // independently checks the verified identity against the actual invitation.
+    setBusy(true,'Checking invitation…');
     try{
-      if(!(await emailMatchesInvite(email)))throw new Error('This email does not match the address that received the invitation.');
+      if(!(await emailMatchesInvite(email)))throw new Error('Use the email address that received this invitation.');
       flow.email=email;storageSet(EMAIL_KEY,email);
-      const auth=window.firebaseAuth||firebase.auth();
-      let methods=[];try{methods=await auth.fetchSignInMethodsForEmail(email);}catch(_e){}
-      if(Array.isArray(methods)&&methods.includes('password'))showSignInStep();else showCreateStep();
-    }catch(error){showInline(friendlyError(error),'error');}
+    }catch(error){showInline(friendlyError(error));return;}
     finally{setBusy(false);}
+    if(flow.mode==='signin')return window.v138SignInInvitedAccount();
+    return window.v138CreateInvitedAccount();
   };
   window.v138ShowCreate=showCreateStep;
   window.v138ShowSignIn=showSignInStep;
   window.v138TogglePassword=function(id,button){
     const input=document.getElementById(id);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Hide':'Show';button.setAttribute('aria-label',show?'Hide password':'Show password');input.focus();
   };
-  window.v138UpdatePasswordStrength=function(){
-    const p=document.getElementById('v138NewPassword')?.value||'';
-    const confirm=document.getElementById('v138ConfirmPassword')?.value||'';
-    const result=passwordStatus(p,flow.email,flow.summary?.name||'');
-    document.querySelectorAll('#v138PasswordRules [data-rule]').forEach(li=>li.classList.toggle('passed',!!result.rules[li.dataset.rule]));
-    const bar=document.getElementById('v138StrengthBar');if(bar){bar.style.width=`${Math.round(result.passed/result.total*100)}%`;bar.dataset.level=String(result.passed);}
-    const text=document.getElementById('v138StrengthText');if(text)text.textContent=result.valid?(p===confirm?'Strong password — ready':'Strong password — confirm it'):`${result.passed} of ${result.total} requirements met`;
-    const button=document.getElementById('v138CreateButton');if(button)button.disabled=!(result.valid&&p===confirm&&!flow.busy);
-  };
   window.v138CreateInvitedAccount=async function(event){
     event?.preventDefault();if(flow.busy)return;
-    const password=document.getElementById('v138NewPassword')?.value||'';
-    const confirm=document.getElementById('v138ConfirmPassword')?.value||'';
+    const password=document.getElementById('v138AccountPassword')?.value||'';
     const strength=passwordStatus(password,flow.email,flow.summary?.name||'');
-    if(!strength.valid)return showInline('Complete every password requirement.','error');
-    if(password!==confirm)return showInline('The two passwords do not match.','error');
+    if(!strength.valid)return showInline('Use 8–128 characters with uppercase, lowercase, a number and a symbol.','error');
     setBusy(true,'Creating account…');showInline('');
     try{
       if(!(await emailMatchesInvite(flow.email)))throw new Error('The invited email could not be confirmed.');
       const auth=window.firebaseAuth||firebase.auth();
-      await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+      await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(()=>{});
       const cred=await auth.createUserWithEmailAndPassword(flow.email,password);
       await cred.user.updateProfile({displayName:flow.summary?.name||''}).catch(()=>{});
       storageSet(PENDING_KEY,JSON.stringify({type:'invite',token:flow.token,name:flow.summary?.name||'',email:flow.email,createdAt:new Date().toISOString()}));
-      await sendVerification(cred.user,true);
-      showVerifyStep();
+      showVerifyStep('Sending your verification email…');
+      try{await sendVerification(cred.user,true);showInline('Verification email sent. Check your inbox.','success');}
+      catch(error){showInline('Your account was created. '+friendlyError(error)+' Use Resend verification email to retry.');}
     }catch(error){
       const code=String(error?.code||'');
       if(code.includes('email-already-in-use'))showSignInStep('An account already exists for this email. Enter its password, or reset it.');
       else showInline(friendlyError(error),'error');
-    }finally{setBusy(false);window.v138UpdatePasswordStrength?.();}
+    }finally{setBusy(false);}
   };
   async function sendVerification(user,force=false){
     const now=Date.now();if(!force&&now-flow.lastVerificationSentAt<30000)throw new Error('Wait 30 seconds before requesting another verification email.');
@@ -400,13 +353,13 @@
   };
   window.v138SignInInvitedAccount=async function(event){
     event?.preventDefault();if(flow.busy)return;
-    const password=document.getElementById('v138ExistingPassword')?.value||'';
+    const password=document.getElementById('v138AccountPassword')?.value||'';
     if(!password)return showInline('Enter your password.','error');
     setBusy(true,'Signing in…');showInline('');
     try{
       if(!(await emailMatchesInvite(flow.email)))throw new Error('The invited email could not be confirmed.');
       const auth=window.firebaseAuth||firebase.auth();
-      await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+      await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(()=>{});
       if(auth.currentUser&&normalizeEmail(auth.currentUser.email)!==flow.email)await auth.signOut();
       const cred=await auth.signInWithEmailAndPassword(flow.email,password);
       storageSet(PENDING_KEY,JSON.stringify({type:'invite',token:flow.token,name:flow.summary?.name||'',email:flow.email,createdAt:new Date().toISOString()}));
@@ -420,7 +373,10 @@
     finally{setBusy(false);}
   };
   window.v138SendInvitePasswordReset=async function(){
-    if(flow.busy)return;setBusy(true,'Sending reset link…');showInline('');
+    if(flow.busy)return;
+    const entered=normalizeEmail(document.getElementById('v138InviteEmail')?.value||flow.email);
+    flow.email=entered;
+    setBusy(true,'Sending reset link…');showInline('');
     try{
       if(!(await emailMatchesInvite(flow.email)))throw new Error('The invited email could not be confirmed.');
       const auth=window.firebaseAuth||firebase.auth();
@@ -433,6 +389,8 @@
     try{const auth=window.firebaseAuth||window.firebase?.auth?.();if(auth?.currentUser)await auth.signOut();}catch(_e){}
     clearInvite();
     try{const url=new URL(location.href);url.searchParams.delete('invite');url.searchParams.delete('recipient');url.searchParams.delete('setup');history.replaceState(null,'',url.pathname+(url.search?url.search:'')+(url.hash||''));}catch(_e){}
+    if(typeof clearCurrentSession==='function')clearCurrentSession();
+    try{localStorage.removeItem('myschedule_v103_active_user');}catch(_e){}
     if(typeof window.render==='function')window.render();else location.reload();
   };
 
@@ -446,10 +404,26 @@
   const observer=new MutationObserver(()=>{if(hasInvite()&&document.getElementById('v138InviteFlow'))initialize();});
   observer.observe(document.documentElement,{childList:true,subtree:true});
   if(hasInvite()){
-    setTimeout(()=>{if(typeof window.render==='function'&&!window.currentUser?.())window.render();initialize();},0);
+    setTimeout(()=>{
+      if(typeof clearCurrentSession==='function')clearCurrentSession();
+      try{localStorage.removeItem('myschedule_v103_active_user');}catch(_e){}
+      if(typeof window.render==='function')window.render();initialize();
+    },0);
     setTimeout(initialize,400);
     setTimeout(initialize,1200);
   }
+
+  async function resumeVerification(){
+    if(flow.busy||!hasInvite()||!document.querySelector('.v138-verify-panel')||document.hidden)return;
+    const user=(window.firebaseAuth||window.firebase?.auth?.())?.currentUser;
+    if(!user)return;
+    setBusy(true,'Checking verification…');
+    try{await user.reload();if(user.emailVerified)await acceptAndEnter(user);}catch(_e){}
+    finally{setBusy(false);}
+  }
+  window.addEventListener('focus',resumeVerification);
+  document.addEventListener('visibilitychange',resumeVerification);
+  setInterval(resumeVerification,5000);
 
   // Make a signed-in wrong account leave cleanly before the dedicated flow is shown.
   window.v138OpenInviteSetup=async function(){

@@ -3104,3 +3104,10 @@ body.v139-entering-workspace #app{animation:v139WorkspaceIn .24s cubic-bezier(.2
   body.logged-in .role-owner .sidebar,
   body.logged-in .role-manager .sidebar{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:#fff!important}
 }
+
+/* Same-site Firebase email actions. */
+.auth-action-dialog{width:min(440px,calc(100vw - 32px));box-sizing:border-box;border:1px solid #ddd;border-radius:20px;padding:28px;background:#fff;color:#172033;box-shadow:0 24px 80px #0003}
+.auth-action-dialog::backdrop{background:#10203880}
+.auth-action-dialog form{display:grid;gap:12px}
+.auth-action-dialog input{width:100%;box-sizing:border-box}
+.auth-action-dialog button{margin-top:12px}
