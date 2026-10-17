@@ -11,23 +11,30 @@ The user supplied the currently deployed rules on 15 October 2026. This review i
 5. The comment promising a random SHA-256 ID is not enforced by the rules. Equality of tokenHash and document ID does not establish randomness or even SHA-256 formatting.
 6. Denying browser access to secureBusinesses and secureInvitations does not protect the separately writable legacy document.
 
-## Required implementation
+## Implemented Spark-compatible replacement (not yet deployed)
 
-- Move authoritative business data into separate business documents/collections, or expose it only through authenticated backend functions that return the caller's authorized data. Do not return the shared multi-business document to browsers.
-- Keep membership creation, roles, approval state, invitation creation/revocation and acceptance under server authorization. Invitation acceptance must check verified Firebase UID/email, token hash, business, pending state, expiry and replacement, then consume it atomically.
-- Authorize roster/data reads and writes by business membership and role. Employees must not be able to edit other employees, managers, roles, invitation state or another business.
-- Generate previews from authorized invitation operations. Restrict preview updates to the backend; a preview must never grant membership.
-- Migrate the legacy records with an administrative process, preserving IDs and validating existing owner/employee bindings before cutover. Do not automatically trust all existing active roles: the old rules allowed authenticated clients to edit them.
-- Remove browser access to the legacy shared document only when the matching backend and client changes are deployed together. A deny-all replacement applied now would interrupt the existing application.
-- Test rules and backend authorization in the emulator using unverified users, users without memberships, employees and owners across two businesses. Then run a disposable-account integration check against the deployed project.
+The user requires a free plan and declined billing upgrades. The Functions approach
+has been removed. `spark-store.js` stores each workplace in its own namespace,
+with UID membership documents, separate private profiles and limited directories,
+record-level authorization and atomically consumed invitations. The browser SDK
+runs transactions, but Firestore rules independently enforce every access grant.
+Rules protect the database even if the browser JavaScript is modified.
 
-## Deployment requirements
+The legacy shared document is read-only for one explicitly pinned, verified
+migration owner, and inaccessible to everyone else. It is never edited by migration.
+A random new workplace namespace is created for each reviewed owned business;
+existing staff must be re-invited because old role data could have been modified
+under the previous rules. The temporary legacy-read exception can be removed after
+migration. See SPARK_DEPLOYMENT.md for the required coordinated cutover and tests.
 
-The frontend simplification in this PR remains a draft. The available GitHub connection cannot deploy Firebase rules or functions. The user declined a Firebase plugin connection and confirmed that Functions says “Waiting for your first deploy”. This branch now includes first-deployment backend source, a callable client adapter, replacement rules and manual instructions in FIREBASE_DEPLOYMENT.md. None have been deployed to the live Firebase project.
+The existing Cloudflare email Worker now uses the same per-workplace Firestore
+rules with the Firebase caller token. It has no Admin SDK credentials. Sharing a
+saved invitation link manually works without any email service or paid plan.
 
-The Authentication email action URL must point to `https://aadi4875.github.io/MySchedule/` after the handler assets are deployed. That setting fixes the separate verification-page redirect; it does not repair database authorization.
+No production rule, billing setting, email template, Worker or business record has
+been changed by writing this source. Live-project verification remains required.
 
 References:
-- https://firebase.google.com/docs/firestore/security/get-started
-- https://firebase.google.com/docs/firestore/security/rules-fields#allowing_read_access_only_for_specific_fields
+- https://firebase.google.com/docs/firestore/security/rules-fields
+- https://firebase.google.com/docs/firestore/security/rules-conditions
 - https://firebase.google.com/docs/auth/custom-email-handler

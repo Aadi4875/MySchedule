@@ -1,4 +1,4 @@
-/* All production persistence uses authenticated callable functions. No Firestore fallback. */
+/* Free Spark storage adapter. Firestore rules enforce authorization; no Functions. */
 (function(){
   'use strict';
   let activeBusiness='';
@@ -9,16 +9,19 @@
   let stopRefresh=null;
   let displayedRevision=0;
   try{localStorage.removeItem(APP_KEY);}catch(_e){}
-  const setup=new URL(location.href).searchParams.get('backend-setup')==='1';
+  const setup=new URL(location.href).searchParams.get('spark-setup')==='1';
+  let store=null;
   try{activeBusiness=sessionStorage.getItem('myschedule_secure_business')||'';}catch(_e){}
-  function api(name='scheduleApi'){
-    if(!initFirebase()||!firebase?.functions)throw new Error('Firebase Authentication and Functions must be configured.');
-    return firebase.app().functions('us-central1').httpsCallable(name);
+  function storage(){
+    if(store)return store;
+    if(!initFirebase()||!firebaseDb||!window.MyScheduleSparkStore)throw new Error('Firebase sign-in and Spark storage files must be configured.');
+    store=window.MyScheduleSparkStore.create({db:firebaseDb,user:()=>firebaseAuth?.currentUser,FieldValue:firebase.firestore.FieldValue,Timestamp:firebase.firestore.Timestamp});
+    if(activeBusiness)store.select(activeBusiness);return store;
   }
   function select(id){if(!id)return;activeBusiness=id;try{sessionStorage.setItem('myschedule_secure_business',id);}catch(_e){}}
   async function call(action,payload={}){
-    const result=(await api()({action,payload:{businessId:activeBusiness||undefined,...payload}})).data;
-    if(!result?.ok)throw new Error('The secure backend did not complete this operation.');
+    const result=await storage().call(action,{businessId:activeBusiness||undefined,...payload});
+    if(!result?.ok)throw new Error('The Spark storage did not complete this operation.');
     if(result.businessId)select(result.businessId);
     if(result.revision!==undefined)cloudRevision=Number(result.revision);
     return result;
@@ -74,25 +77,28 @@
     return saveChain;
   };
   startFirebaseLiveUpdates=function(){
-    if(stopRefresh)return;
-    const timer=setInterval(async()=>{
-      if(loading||saving||document.hidden||!currentUser()||!firebaseAuth?.currentUser?.emailVerified)return;
-      loading=true;try{const result=await call('loadWorkspaceState');if(Number(result.revision)>displayedRevision){state=migrateState(result.state);displayedRevision=Number(result.revision);render();}}
-      catch(error){console.warn('Secure refresh paused',error.code||'unavailable');}finally{loading=false;}
-    },30000);
-    stopRefresh=()=>{clearInterval(timer);stopRefresh=null;};firebaseLiveUnsubscribe=stopRefresh;
+    if(stopRefresh||!activeBusiness)return;
+    stopRefresh=storage().listen(async value=>{
+      if(loading||saving||!currentUser()||document.hidden||value<=cloudRevision)return;
+      loading=true;try{apply(await call('loadWorkspaceState'));render();}catch(error){console.warn('Workplace update paused',error.code||'unavailable');}finally{loading=false;}
+    },error=>{if(error.code==='permission-denied'){clearCurrentSession();state=migrateState(defaultState());render();toast('Your workplace access has ended. Contact the owner.');}});firebaseLiveUnsubscribe=()=>{stopRefresh?.();stopRefresh=null;};
   };
-  window.sendEmail=sendEmail=async function(payload){
-    try{
-      const result=(await api('sendWorkplaceEmail')({...payload,businessId:payload.businessId||activeBusiness})).data;
-      updateEmailStatus(payload.noteId,result.ok?'sent_real':'failed',result.ok?'Email accepted by provider.':'Email was not sent.');return result;
-    }catch(error){updateEmailStatus(payload.noteId,'failed',error.message);return {ok:false,error:error.message};}
+  const previousNotify=notifyUser;
+  notifyUser=function(userId,type,subject,message,options={}){
+    const from=currentUser();
+    if(from?.role==='employee'){
+      const target=state.users.find(p=>p.id===userId&&p.businessId===from.businessId&&['owner','manager'].includes(p.role)&&p.status==='active');
+      if(!target)return;
+      state.notifications.push({id:uuid(),businessId:from.businessId,userId:target.id,toUserId:target.id,type:'employee_update',subject:'Employee update',message:String(message||''),createdByUserId:from.id,read:false,createdAt:now(),requiresAction:false,actionStatus:'informational',targetView:'requests'});
+      saveState();return;
+    }
+    return previousNotify(userId,type,subject,message,options);
   };
   window.removeUser=removeUser=async function(userId){
     if(!confirm('Remove this member’s workplace access?'))return;
     try{apply(await call('removeMember',{userId}));renderContent();toast('Workplace access removed.');}catch(error){toast(error.message);}
   };
-  cloudStatusBadge=function(){return '<span class="badge good">Server-authorized workplace</span>';};
+  cloudStatusBadge=function(){return '<span class="badge good">Business-protected Spark storage</span>';};
   // Bootstrap is an administrator-only maintenance action, outside ordinary signup.
   if(setup){
     window.initializeSecureBackend=async function(){
@@ -101,17 +107,18 @@
         if(!auth.currentUser){await auth.signInWithEmailAndPassword(normalizeEmail(el('login-email')?.value),String(el('login-password')?.value||''));}
         await auth.currentUser.reload();await auth.currentUser.getIdToken(true);
         const preview=await call('inspectLegacyWorkspaces');
-        if(preview.initialized)return toast('The backend is already initialized. Sign in normally.');
+        if(preview.initialized)return toast('The Spark storage is already initialized. Sign in normally.');
         const names=preview.workspaces.map(w=>w.name).join(', ');
-        if(!confirm('Initialize secure access for '+(names||'a new empty project')+'? A private backup will be saved. Other existing members will need a new invitation.'))return;
+        if(!preview.workspaces.length)return toast('No owned legacy workplace was found. Use Business signup for a new workplace.');
+        if(!confirm('Migrate your existing workplace to Spark storage: '+(names||'a new empty project')+'? The old snapshot will remain read-only. Other existing members will need a new invitation.'))return;
         await call('initializeBackend',{businessIds:preview.workspaces.map(w=>w.businessId)});
-        history.replaceState(null,'',location.pathname);toast('Backend initialized. Existing employees now need new invitations. Sign in to continue.');
+        history.replaceState(null,'',location.pathname);toast('Spark migration finished. Send new invitations to existing employees, then sign in.');
       }catch(error){toast(error.message||'Initialization failed.');}
     };
     const observer=new MutationObserver(()=>{
       const panel=document.querySelector('.landing-auth-card');
       if(!panel||panel.querySelector('#secure-setup-button'))return;
-      const button=document.createElement('button');button.id='secure-setup-button';button.type='button';button.textContent='Administrator: initialize secure backend';button.onclick=window.initializeSecureBackend;panel.appendChild(button);
+      const button=document.createElement('button');button.id='secure-setup-button';button.type='button';button.textContent='Owner: migrate existing workplace';button.onclick=window.initializeSecureBackend;panel.appendChild(button);
     });observer.observe(document.documentElement,{childList:true,subtree:true});
   }
   window.__MYSCHEDULE_RESOLVE_SECURE?.();

@@ -1,80 +1,67 @@
-# MySchedule
+# MySchedule — free Firebase Spark setup
 
-Static workforce scheduling UI with Firebase Authentication and a server-authorized
-Cloud Functions backend. Node.js 22 is the production backend runtime. GitHub Pages
-hosts the browser files; Firebase hosts the functions and private Firestore data.
+A static scheduling UI on GitHub Pages, with Firebase Authentication and separate
+Firestore records for each business. This branch uses **Spark**, not Cloud
+Functions. There is no Firebase billing upgrade, paid backend or service-account
+key requirement. Keep billing disabled. Free-service quotas still apply.
 
-**This draft branch requires a coordinated Firebase deployment before publishing.**
-Follow [FIREBASE_DEPLOYMENT.md](FIREBASE_DEPLOYMENT.md). It replaces the legacy
-browser-readable multi-business document with authenticated callable access to
-that private storage. Creating or merging this PR does not deploy Firebase.
+**The changes are a draft, not deployed.** Follow [SPARK_DEPLOYMENT.md](SPARK_DEPLOYMENT.md)
+to publish the rules and matching client together and migrate the existing data.
+The previous Functions approach has been removed from this branch.
 
-## Run the UI locally
+## Local setup and checks
 
 ```sh
 npm ci
 npm start
 ```
 
-Open http://localhost:8000. The local server builds and serves only `dist`. Real
-sign-in needs the configured Firebase project and a deployed backend. There is no
-insecure local-data fallback. For offline UI tests use the test fixtures.
-
-`config.js` supports public Firebase and Google Places settings. The normal
-built-in Firebase web configuration remains the default. Do not put server or
-mail credentials in public configuration. Session credentials and passwords are
-handled by Firebase Authentication.
-
-## Checks
+Open http://localhost:8000. Real sign-in needs your configured Firebase project.
+Public web settings belong in `config.js`; never put a Brevo key there.
 
 ```sh
-npm ci --prefix functions
 npm run build
 npm run lint
 npm test
+npm run test:emulators
 ```
 
-Unit tests cover backend authorization, invitation expiry/replacement/replay,
-business isolation, protected roles, server-side removal, optimistic concurrency,
-owner verification, email actions, and the real frontend-to-backend state shape.
-DOM tests also render owner, manager and employee routes with network disabled.
-Build checks syntax and every referenced local asset before copying to `dist`.
+Emulator tests use a disposable `demo-myschedule` project on loopback only and
+require Java 17+ (the helper pins Firebase CLI 14.27.0). They test the actual
+Firestore rules with authenticated clients and the same storage module used by
+the website. They do not deploy, change billing or send email.
 
-Auth/Firestore/Functions emulator integration tests use the disposable
-`demo-myschedule` project and loopback hosts only. Run `npm run test:emulators` after installing the backend dependencies. Details are
-in [FIREBASE_DEPLOYMENT.md](FIREBASE_DEPLOYMENT.md). These test callable handlers and denial of direct database reads/writes. The
-`--direct` mode exercises the actual handlers with Auth/Firestore emulators when
-the full Functions HTTP emulator is unavailable; HTTP/CORS still need verification. They do not send real emails
-or deploy anything to production. Use Java 21+ with current Firebase CLI releases.
+## Account flow
 
-## Signup and invitations
+- Owners: business name, full name, email, password, then email verification.
+- Employees: open the invitation, enter the invited email and a password (or sign
+  in with an existing account), verify email, then enter the invited business.
+- One sign-in form for everyone. No workplace code or second manager approval.
+- Expiring, one-time invitations are consumed together with UID membership
+  creation in an atomic transaction. Firestore rules enforce the email, role,
+  business, expiry, revocation and membership checks independently of the UI.
 
-Everyone signs in with the same email/password form. Owner signup uses business
-name, full name, email and password, then continues after verification. Employee
-invitations open one email/password form with an existing-account option. A verified
-identity accepts only the exact pending invitation, then enters that business.
+## Data and deployment
 
-Expired, revoked, replaced and consumed invitations do not grant access. Workspace
-codes and legacy join approvals are retired; managers send invitations instead.
-Verification/reset handling stays on the website after configuring the Firebase
-Authentication email action URL. Backend initialization preserves existing records,
-backs them up privately and requires existing employees to be re-invited.
+- `spark-store.js` contains the shared Firestore client/storage implementation.
+- `secure-backend.js` connects existing screens to Spark storage. Its historical
+  name is retained for compatibility; it makes no Functions calls.
+- `firestore.rules` protects each workplace, UID membership, private employee
+  record and invitation. Directory data and published shifts have separate rules.
+- `cloudflare-worker/worker-v147.mjs` is updated for the Spark schema. It reuses the
+  existing email service with Firebase bearer authentication and rules-protected
+  reads. If email is unavailable, an owner can copy/share the saved invitation
+  link instead. No paid mail plan is required by this code.
+- The legacy shared document becomes read-only for the explicitly pinned migration
+  owner and inaccessible to everyone else. Migration preserves it as a private
+  snapshot, creates separated records and requires employees to be re-invited.
 
-## Source layout and limits
+Firestore listeners watch one revision document instead of repeatedly polling all
+workplace data. Writes update only changed records. Spark has hard usage quotas;
+if a free quota is exhausted, access may pause until reset rather than creating a
+bill while billing remains disabled.
 
-- `functions/`: callable handlers, server authorization and locked dependencies.
-- `secure-backend.js`: browser adapter; no direct Firestore fallback.
-- `firestore.rules`: backend-only data; all browser reads/writes denied.
-- `FIREBASE_SECURITY_REVIEW.md`: assessment of the user-supplied legacy rules.
-- `cloudflare-worker/worker-v147.mjs`: retained legacy email source, unused by the
-  new secure client. Mail now uses a server-side Brevo secret and plain-text email.
-
-This remains a draft until the production deployment and disposable-account checks
-are completed. Visual browser QA was unavailable because Chromium download failed.
-The existing shared storage is private but still subject to Firestore document
-size/contention limits. The backend refuses writes near its size limit. Employee
-time records require manager review and are not trusted payroll evidence.
-
-The earlier missing extension assets for automation, multiple businesses, business
-management and email security have not been reconstructed. The base app and a
-secure workplace chooser are included; extension-specific features remain absent.
+Live-project sign-in, email delivery, the email action URL and browser visual QA
+still need release verification. Chromium download was unavailable in the coding
+environment. Optional extensions missing from the original repository have not
+been reconstructed. Employee time records still require managerial review.

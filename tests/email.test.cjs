@@ -37,11 +37,16 @@ test('browser request passes the supplied Worker through token verification and 
  const signature=await webcrypto.subtle.sign('RSASSA-PKCS1-v1_5',keys.privateKey,Buffer.from(unsigned));
  const token=unsigned+'.'+Buffer.from(signature).toString('base64url');
  const firestoreValue=x=>Array.isArray(x)?{arrayValue:{values:x.map(firestoreValue)}}:typeof x==='object'?{mapValue:{fields:Object.fromEntries(Object.entries(x).map(([k,v])=>[k,firestoreValue(v)]))}}:{stringValue:x};
- const state={users:[{businessId:'business-1',status:'active',authUid:'owner-uid',email:'owner@example.com',role:'owner'},{businessId:'business-1',status:'invited',email:'test@example.com'}]};
+ const state={users:[{id:'owner',businessId:'business-1',status:'active',authUid:'owner-uid',email:'owner@example.com',role:'owner'},{id:'invited',businessId:'business-1',status:'invited',email:'test@example.com'}]};
  let sent=0;
  const fakeFetch=async(url,options)=>{
   if(url.includes('/jwk/'))return Response.json({keys:[jwk]});
-  if(url.includes('firestore.googleapis.com'))return Response.json({fields:{state:firestoreValue(state)}});
+  if(url.includes('firestore.googleapis.com')){
+   assert.ok(url.includes('/workplaces/business-1'));
+   if(url.endsWith(':runQuery'))return Response.json(state.users.map(p=>({document:{fields:firestoreValue(p).mapValue.fields}})));
+   if(url.includes('/members/'))return Response.json({fields:firestoreValue({profileId:'owner',role:'owner',status:'active'}).mapValue.fields});
+   return Response.json({fields:firestoreValue({business:{id:'business-1',name:'Test'}}).mapValue.fields});
+  }
   assert.equal(url,'https://api.brevo.com/v3/smtp/email');sent++;
   assert.equal(JSON.parse(options.body).to[0].email,'test@example.com');return Response.json({messageId:'contract-test-message'});
  };

@@ -1,9 +1,226 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Backend-only storage. The Admin SDK bypasses these rules; every callable
-    // authenticates and authorizes the business and operation independently.
-    // Deploy with the callable backend and secure client, during maintenance.
+    function signed() { return request.auth != null; }
+    function verified() { return signed() && request.auth.token.email_verified == true; }
+    function mail() { return request.auth.token.email.lower(); }
+    function root(b) { return get(/databases/$(database)/documents/workplaces/$(b)).data; }
+    function binding(b) { return get(/databases/$(database)/documents/workplaces/$(b)/members/$(request.auth.uid)).data; }
+    function active(b) { return verified() && binding(b).status == 'active'; }
+    function activeAfter(b) { return verified() && getAfter(/databases/$(database)/documents/workplaces/$(b)/members/$(request.auth.uid)).data.status == 'active'; }
+    function manager(b) { return active(b) && binding(b).role in ['owner','manager']; }
+    function owner(b) { return active(b) && root(b).ownerUid == request.auth.uid && binding(b).role == 'owner'; }
+    function ownProfile(b,p) { return active(b) && binding(b).profileId == p; }
+    function sameBusiness(b) { return request.resource.data.businessId == b; }
+    function privateProfile(b,p) { return get(/databases/$(database)/documents/workplaces/$(b)/profiles/$(p)).data; }
+    function invitation(b,h) { return get(/databases/$(database)/documents/workplaces/$(b)/invitations/$(h)).data; }
+    function invited(b,h) {
+      let i = invitation(b,h);
+      return verified() && i.status == 'pending' && i.email == mail() && i.expiresAt > request.time
+        && i.businessId == b && i.role in ['employee','manager']
+        && get(/databases/$(database)/documents/workplaces/$(b)/members/$(i.inviterUid)).data.status == 'active'
+        && (get(/databases/$(database)/documents/workplaces/$(b)/members/$(i.inviterUid)).data.role == 'owner'
+          || (i.role == 'employee' && get(/databases/$(database)/documents/workplaces/$(b)/members/$(i.inviterUid)).data.role == 'manager'));
+    }
+    function acceptedAfter(b,h,p,r) {
+      let i = getAfter(/databases/$(database)/documents/workplaces/$(b)/invitations/$(h)).data;
+      let m = getAfter(/databases/$(database)/documents/workplaces/$(b)/members/$(request.auth.uid)).data;
+      return invited(b,h) && i.status == 'accepted' && i.acceptedByUid == request.auth.uid
+        && i.profileId == p && i.role == r && m.profileId == p && m.role == r && m.status == 'active';
+    }
+    function profileAccepted(b,h,p,r) {
+      let v = getAfter(/databases/$(database)/documents/workplaces/$(b)/profiles/$(p)).data;
+      return v.authUid == request.auth.uid && v.status == 'active' && v.email == mail() && v.role == r;
+    }
+    function initialOwner(b) {
+      return signed() && !exists(/databases/$(database)/documents/workplaces/$(b))
+        && getAfter(/databases/$(database)/documents/workplaces/$(b)).data.ownerUid == request.auth.uid;
+    }
+    function profilePatch() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'name','phone','photoData','notifyEmail','notifyInApp','pendingEmail','pendingEmailRequestedAt',
+        'pendingEmailDeliveryError','updatedAt','profileRevision','profileVerifiedByAuthUid','lastLoginAt',
+        'emailVerified','email','status'
+      ]) && request.resource.data.email == mail()
+      && request.resource.data.status == 'active';
+    }
+    function rowOwn(b,d) {
+      return active(b) && d.employeeId == binding(b).profileId
+        && (!('userId' in d) || d.userId == binding(b).profileId);
+    }
+    function noticeVisible(b,d) {
+      return active(b) && (d.audience in ['all','employee'] || ('userIds' in d && binding(b).profileId in d.userIds));
+    }
+    // Only this explicitly pinned owner may read the frozen legacy snapshot for migration.
+    // Replace the placeholder with YOUR Authentication UID before deployment.
+    function migrationAdmin() { return verified() && request.auth.uid == 'REPLACE_WITH_YOUR_OWNER_FIREBASE_UID'; }
+    match /apps/myschedule_public_launch {
+      allow get: if migrationAdmin();
+      allow list, write: if false;
+    }
+    match /sparkMigrations/{legacyId} {
+      allow read: if migrationAdmin();
+      allow create: if migrationAdmin() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if migrationAdmin() && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.businessId == resource.data.businessId;
+      allow delete: if false;
+    }
+    match /accountWorkplaces/{uid}/items/{b} {
+      allow read: if verified() && request.auth.uid == uid;
+      allow create, update: if signed() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['businessId','businessName','profileId','role'])
+        && request.resource.data.businessId == b
+        && getAfter(/databases/$(database)/documents/workplaces/$(b)/members/$(uid)).data.profileId == request.resource.data.profileId
+        && getAfter(/databases/$(database)/documents/workplaces/$(b)/members/$(uid)).data.role == request.resource.data.role
+        && getAfter(/databases/$(database)/documents/workplaces/$(b)/members/$(uid)).data.status == 'active';
+      allow delete: if verified() && request.auth.uid == uid;
+    }
+    match /invitePreviews/{h} {
+      allow get: if true;
+      allow list, delete: if false;
+      allow create: if h.matches('^[a-f0-9]{64}$') && manager(request.resource.data.businessId)
+        && request.resource.data.keys().hasOnly(['businessId','businessName','name','role','emailMasked','expiresAt','invitedByName','recipientProof','status'])
+        && getAfter(/databases/$(database)/documents/workplaces/$(request.resource.data.businessId)/invitations/$(h)).data.inviterUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/workplaces/$(request.resource.data.businessId)/invitations/$(h)).data.status == 'pending';
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.businessId == resource.data.businessId
+        && ((manager(resource.data.businessId) && request.resource.data.status == 'revoked'
+          && getAfter(/databases/$(database)/documents/workplaces/$(resource.data.businessId)/invitations/$(h)).data.status == 'revoked')
+          || (verified() && request.resource.data.status == 'accepted'
+            && getAfter(/databases/$(database)/documents/workplaces/$(resource.data.businessId)/invitations/$(h)).data.status == 'accepted'
+            && getAfter(/databases/$(database)/documents/workplaces/$(resource.data.businessId)/invitations/$(h)).data.acceptedByUid == request.auth.uid));
+    }
+    match /workplaces/{b} {
+      allow get: if active(b);
+      allow list: if false;
+      allow create: if signed() && request.resource.data.keys().hasOnly(['ownerUid','ownerProfileId','business','migrationComplete'])
+        && request.resource.data.ownerUid == request.auth.uid && request.resource.data.business.id == b
+        && request.resource.data.business.createdByOwnerId == request.resource.data.ownerProfileId
+        && getAfter(/databases/$(database)/documents/workplaces/$(b)/members/$(request.auth.uid)).data.role == 'owner'
+        && getAfter(/databases/$(database)/documents/workplaces/$(b)/members/$(request.auth.uid)).data.profileId == request.resource.data.ownerProfileId;
+      allow update: if owner(b) && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerProfileId == resource.data.ownerProfileId && request.resource.data.business.id == b
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['business','migrationComplete']);
+      allow delete: if false;
+      match /members/{uid} {
+        allow get: if (verified() && request.auth.uid == uid) || manager(b);
+        allow list: if manager(b);
+        allow create: if request.resource.data.keys().hasOnly(['uid','businessId','profileId','email','role','status','inviteHash'])
+          && request.resource.data.uid == uid && sameBusiness(b) && request.auth.uid == uid
+          && request.resource.data.email == mail() && request.resource.data.status == 'active'
+          && ((initialOwner(b) && request.resource.data.role == 'owner'
+            && getAfter(/databases/$(database)/documents/workplaces/$(b)).data.ownerProfileId == request.resource.data.profileId)
+          || (verified() && request.resource.data.role in ['employee','manager']
+            && acceptedAfter(b,request.resource.data.inviteHash,request.resource.data.profileId,request.resource.data.role)
+            && profileAccepted(b,request.resource.data.inviteHash,request.resource.data.profileId,request.resource.data.role)));
+        allow update: if request.resource.data.uid == uid && sameBusiness(b)
+          && ((manager(b) && uid != root(b).ownerUid && resource.data.role in ['employee','manager']
+            && (resource.data.role == 'employee' || owner(b))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && request.resource.data.status in ['inactive','removed'])
+          || (verified() && request.auth.uid == uid && resource.data.status == 'active'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email']) && request.resource.data.email == mail())
+          || (verified() && request.auth.uid == uid && resource.data.status in ['inactive','removed']
+            && request.resource.data.role in ['employee','manager'] && request.resource.data.status == 'active'
+            && request.resource.data.email == mail()
+            && acceptedAfter(b,request.resource.data.inviteHash,request.resource.data.profileId,request.resource.data.role)
+            && profileAccepted(b,request.resource.data.inviteHash,request.resource.data.profileId,request.resource.data.role)));
+        allow delete: if false;
+      }
+      match /invitations/{h} {
+        allow get: if manager(b) || (verified() && resource.data.email == mail());
+        allow list: if manager(b);
+        allow create: if manager(b) && root(b).migrationComplete == true && h.matches('^[a-f0-9]{64}$')
+          && request.resource.data.keys().hasOnly(['id','tokenHash','businessId','profileId','userId','email','name','role','status','createdAt','expiresAt','inviterUid','invitedByUserId','invitedByName'])
+          && request.resource.data.id == h && request.resource.data.tokenHash == h && sameBusiness(b)
+          && request.resource.data.status == 'pending' && request.resource.data.inviterUid == request.auth.uid
+          && request.resource.data.role in ['employee','manager'] && (request.resource.data.role == 'employee' || owner(b))
+          && request.resource.data.email is string && request.resource.data.email == request.resource.data.email.lower()
+          && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt <= request.time + duration.value(7,'d')
+          && getAfter(/databases/$(database)/documents/workplaces/$(b)/profiles/$(request.resource.data.profileId)).data.email == request.resource.data.email
+          && getAfter(/databases/$(database)/documents/workplaces/$(b)/profiles/$(request.resource.data.profileId)).data.activeInvitationId == h;
+        allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','acceptedAt','acceptedByUid','revokedAt','replacedBy'])
+          && ((manager(b) && resource.data.status == 'pending' && (resource.data.role == 'employee' || owner(b))
+              && request.resource.data.status == 'revoked')
+            || (invited(b,h) && request.resource.data.status == 'accepted' && request.resource.data.acceptedByUid == request.auth.uid
+              && request.resource.data.acceptedAt == request.time
+              && acceptedAfter(b,h,resource.data.profileId,resource.data.role)
+              && profileAccepted(b,h,resource.data.profileId,resource.data.role)));
+        allow delete: if false;
+      }
+      match /profiles/{p} {
+        allow get: if manager(b) || ownProfile(b,p) || (verified() && resource.data.status == 'invited' && resource.data.email == mail());
+        allow list: if manager(b);
+        allow create: if sameBusiness(b) && request.resource.data.id == p
+          && ((initialOwner(b) && request.resource.data.authUid == request.auth.uid && request.resource.data.email == mail()
+            && request.resource.data.role == 'owner' && request.resource.data.status == 'pending_verification'
+            && p == getAfter(/databases/$(database)/documents/workplaces/$(b)).data.ownerProfileId)
+          || (manager(b) && request.resource.data.role in ['employee','manager'] && (request.resource.data.role == 'employee' || owner(b))
+            && request.resource.data.status in ['invited','inactive'] && !('authUid' in request.resource.data)));
+        allow update: if sameBusiness(b) && request.resource.data.id == p
+          && ((ownProfile(b,p) && request.resource.data.authUid == request.auth.uid && request.resource.data.role == resource.data.role && profilePatch())
+            || (manager(b) && resource.data.role in ['employee','manager'] && (resource.data.role == 'employee' || owner(b))
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','phone','notifyEmail','notifyInApp','hireDate','branchIds','primaryBranchId','updatedAt','status','activeInvitationId','inviteExpiresAt','invitedByUserId','emailVerified','role'])
+              && request.resource.data.role in ['employee','manager'] && (request.resource.data.role == 'employee' || owner(b))
+              && request.resource.data.status in ['invited','inactive','removed','active']
+              && (resource.data.status != 'active' || request.resource.data.status != 'invited'))
+            || (verified() && resource.data.status == 'invited' && resource.data.email == mail()
+              && (!('authUid' in resource.data) || resource.data.authUid == request.auth.uid)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['authUid','status','emailVerified','activeInvitationId','acceptedAt','linkedAt','accountSource','updatedAt'])
+              && request.resource.data.authUid == request.auth.uid && request.resource.data.status == 'active'
+              && acceptedAfter(b,resource.data.activeInvitationId,p,resource.data.role)));
+        allow delete: if false;
+      }
+      match /directory/{p} {
+        allow read: if active(b);
+        allow create, update: if request.resource.data.keys().hasOnly(['id','businessId','name','role','status','branchIds'])
+          && sameBusiness(b) && request.resource.data.id == p
+          && (manager(b) || (initialOwner(b) && p == getAfter(/databases/$(database)/documents/workplaces/$(b)).data.ownerProfileId)
+            || (ownProfile(b,p) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','status','branchIds']))
+            || (verified() && exists(/databases/$(database)/documents/workplaces/$(b)/profiles/$(p))
+              && acceptedAfter(b,get(/databases/$(database)/documents/workplaces/$(b)/profiles/$(p)).data.activeInvitationId,p,request.resource.data.role)));
+        allow delete: if manager(b);
+      }
+      match /sync/revision {
+        allow read: if active(b);
+        allow create: if initialOwner(b) && request.resource.data.value == 0;
+        allow update: if activeAfter(b) && request.resource.data.keys().hasOnly(['value']) && request.resource.data.value == resource.data.value + 1;
+        allow delete: if false;
+      }
+      match /{table}/{id} {
+        allow read: if table in ['employees','branches'] && (manager(b) || (active(b) && (table == 'branches' || resource.data.userId == binding(b).profileId)));
+        allow read: if table == 'shifts' && (manager(b) || (active(b) && resource.data.status in ['published','confirmed']));
+        allow read: if table in ['availability','requests','timesheets'] && (manager(b) || rowOwn(b,resource.data));
+        allow read: if table in ['notifications','notificationHistory','noticeReads'] && (manager(b) || (active(b) && resource.data.userId == binding(b).profileId));
+        allow read: if table == 'notices' && (manager(b) || noticeVisible(b,resource.data));
+        allow create, update: if table in ['employees','branches','shifts','availability','requests','timesheets','notifications','notificationHistory','notices','noticeReads'] && manager(b) && sameBusiness(b) && request.resource.data.id == id;
+        allow delete: if table in ['employees','branches','shifts','availability','requests','timesheets','notifications','notificationHistory','notices','noticeReads'] && manager(b);
+        allow create: if table == 'timesheets' && rowOwn(b,request.resource.data) && sameBusiness(b) && request.resource.data.id == id
+          && request.resource.data.keys().hasOnly(['id','businessId','employeeId','shiftId','scheduledStart','scheduledEnd','role','clockIn','clockOut','breaks','status','managerNote','isException','exceptionReason','exceptionNote','exceptionCreatedAt'])
+          && request.resource.data.status == 'open' && request.resource.data.managerNote == '';
+        allow update: if table == 'timesheets' && rowOwn(b,resource.data) && rowOwn(b,request.resource.data) && sameBusiness(b)
+          && resource.data.status in ['open','pending'] && request.resource.data.status in ['open','pending']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockOut','breaks','status','breakMinutes','workedHours','updatedAt']);
+        allow create: if table in ['requests','availability'] && rowOwn(b,request.resource.data) && sameBusiness(b) && request.resource.data.id == id && request.resource.data.status == 'pending'
+          && !request.resource.data.keys().hasAny(['approvedBy','approvedAt','decidedBy','decidedAt','decidedByUserId','reviewedBy']);
+        allow update: if table in ['requests','availability'] && rowOwn(b,resource.data) && rowOwn(b,request.resource.data) && sameBusiness(b)
+          && resource.data.status == 'pending' && request.resource.data.status in ['pending','cancelled']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['message','reason','status','updatedAt']);
+        allow update: if table == 'shifts' && rowOwn(b,resource.data) && rowOwn(b,request.resource.data) && resource.data.status in ['published','confirmed']
+          && request.resource.data.status in ['published','confirmed'] && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','acknowledgedBy','acknowledgedAt','confirmedAt','updatedAt']);
+        allow update: if table in ['notifications','notificationHistory'] && active(b) && resource.data.userId == binding(b).profileId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read','readAt']);
+        allow create: if table == 'notifications' && active(b) && sameBusiness(b) && request.resource.data.id == id
+          && request.resource.data.createdByUserId == binding(b).profileId
+          && request.resource.data.type == 'employee_update' && request.resource.data.requiresAction == false
+          && privateProfile(b,request.resource.data.userId).status == 'active'
+          && get(/databases/$(database)/documents/workplaces/$(b)/members/$(privateProfile(b,request.resource.data.userId).authUid)).data.role in ['owner','manager'];
+        allow create: if table == 'noticeReads' && active(b) && sameBusiness(b) && request.resource.data.id == id
+          && request.resource.data.userId == binding(b).profileId
+          && noticeVisible(b,get(/databases/$(database)/documents/workplaces/$(b)/notices/$(request.resource.data.noticeId)).data);
+      }
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }
