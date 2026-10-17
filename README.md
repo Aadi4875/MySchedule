@@ -1,86 +1,67 @@
-# MySchedule
+# MySchedule — free Firebase Spark setup
 
-Static workforce scheduling frontend: HTML, CSS and vanilla JavaScript. Firebase
-10.12.5 browser SDKs provide Authentication, Firestore and callable Functions.
-Email uses a Cloudflare Worker/Brevo integration. No React or application server
-is included. Node.js is used only for local tooling.
+A static scheduling UI on GitHub Pages, with Firebase Authentication and separate
+Firestore records for each business. This branch uses **Spark**, not Cloud
+Functions. There is no Firebase billing upgrade, paid backend or service-account
+key requirement. Keep billing disabled. Free-service quotas still apply.
 
-## Run locally
+**The changes are a draft, not deployed.** Follow [SPARK_DEPLOYMENT.md](SPARK_DEPLOYMENT.md)
+to publish the rules and matching client together and migrate the existing data.
+The previous Functions approach has been removed from this branch.
 
-Use Node.js 22 or newer:
+## Local setup and checks
 
 ```sh
 npm ci
 npm start
 ```
 
-Open http://localhost:8000. To use another port on macOS/Linux:
-`PORT=8080 npm start`. The local server binds to loopback and serves only the
-validated `dist` directory. GitHub Pages can still serve the root static files.
-
-## Configuration
-
-`config.js` contains optional public browser settings for Firebase, the email
-Worker URL, and Google Places. Existing built-in Firebase and Worker settings
-remain the defaults. A Firebase configuration previously saved in browser storage
-takes precedence. Authorize localhost in your Firebase Authentication project
-before testing real sign-in. The email Worker must allow your local origin.
-
-`.env.example` documents server-side deployment variables; the browser does not
-read `.env`. Never place Brevo keys or other server credentials in `config.js`.
-The Google Places key is optional and should be restricted by origin and API.
-
-## Checks
+Open http://localhost:8000. Real sign-in needs your configured Firebase project.
+Public web settings belong in `config.js`; never put a Brevo key there.
 
 ```sh
+npm run build
 npm run lint
 npm test
-npm run build
+npm run test:emulators
 ```
 
-Build checks JavaScript syntax and every local HTML asset reference before copying
-assets to `dist`. ESLint checks a focused set of correctness rules; it is not a
-comprehensive security audit. Node tests cover invitation validation and isolation,
-plus jsdom startup and route rendering for owner, manager and employee fixtures.
-DOM tests disable networking and do not verify real authentication or persistence.
+Emulator tests use a disposable `demo-myschedule` project on loopback only and
+require Java 17+ (the helper pins Firebase CLI 14.27.0). They test the actual
+Firestore rules with authenticated clients and the same storage module used by
+the website. They do not deploy, change billing or send email.
 
-## Repository gaps and verification limits
+## Account flow
 
-The original HTML referenced eight absent extension assets for automation,
-multiple businesses, business management and email security. Those references
-were removed to eliminate guaranteed 404s; the missing extensions were not
-reconstructed. Corresponding extension-specific functionality remains unavailable.
-The supplied app and invitation modules still provide the existing base screens.
+- Owners: business name, full name, email, password, then email verification.
+- Employees: open the invitation, enter the invited email and a password (or sign
+  in with an existing account), verify email, then enter the invited business.
+- One sign-in form for everyone. No workplace code or second manager approval.
+- Expiring, one-time invitations are consumed together with UID membership
+  creation in an atomic transaction. Firestore rules enforce the email, role,
+  business, expiry, revocation and membership checks independently of the UI.
 
-The original README also referenced `cloudflare-worker/worker-v146.js`, Firebase
-Functions, rules, indexes and upload bundles. None are present in this checkout
-(the repository has one initial upload commit). Backend deployment cannot be
-reproduced from this repository. Obtain those original sources before claiming
-end-to-end production readiness. Do not weaken Firestore rules to work around
-missing services.
+## Data and deployment
 
-Real sign-in, database authorization/persistence, report/invitation email, owner
-OTP flows and scheduled automation require the corresponding configured services
-and separate integration testing. No live business records or emails were changed
-during local verification. Chromium installation failed in the execution
-environment, so visual browser QA has not been completed.
+- `spark-store.js` contains the shared Firestore client/storage implementation.
+- `secure-backend.js` connects existing screens to Spark storage. Its historical
+  name is retained for compatibility; it makes no Functions calls.
+- `firestore.rules` protects each workplace, UID membership, private employee
+  record and invitation. Directory data and published shifts have separate rules.
+- `cloudflare-worker/worker-v147.mjs` is updated for the Spark schema. It reuses the
+  existing email service with Firebase bearer authentication and rules-protected
+  reads. If email is unavailable, an owner can copy/share the saved invitation
+  link instead. No paid mail plan is required by this code.
+- The legacy shared document becomes read-only for the explicitly pinned migration
+  owner and inaccessible to everyone else. Migration preserves it as a private
+  snapshot, creates separated records and requires employees to be re-invited.
 
-## Repairs
+Firestore listeners watch one revision document instead of repeatedly polling all
+workplace data. Writes update only changed records. Spark has hard usage quotas;
+if a free quota is exhausted, access may pause until reset rather than creating a
+bill while billing remains disabled.
 
-- Scoped invitation replacement to the selected business: the same email in a
-  different business no longer has its pending invitation revoked.
-- Removed missing static asset references and replaced misleading setup steps.
-- Added startup failure handling with a retry screen.
-- Added public configuration hooks, a server environment reference, reproducible
-  dependency lockfile, local server, build checks, linting and regression tests.
-
-## Email request contract repair
-
-The supplied Worker source is now preserved at
-`cloudflare-worker/worker-v147.mjs` (unchanged from the uploaded `.js` file).
-This supersedes the earlier note that no Worker source is available; Firebase
-backend sources remain absent. Adding this file does not deploy it to Cloudflare.
-Browser mail requests now include `action: "send-email"`, a unique `requestId`,
-`businessId`, `templateType`, `toName`, and a Firebase bearer token.
-A contract test executes this Worker using a locally signed test token and mocked
-Firebase/Brevo responses. It verifies request compatibility, not inbox delivery.
+Live-project sign-in, email delivery, the email action URL and browser visual QA
+still need release verification. Chromium download was unavailable in the coding
+environment. Optional extensions missing from the original repository have not
+been reconstructed. Employee time records still require managerial review.

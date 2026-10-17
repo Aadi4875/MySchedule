@@ -400,6 +400,7 @@ function migrateState(data){
 }
 
 async function loadState(){
+  if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND)return migrateState(defaultState());
   let data = null;
 
   // True free cloud mode: Firebase Spark Firestore. Works from GitHub Pages/static hosting.
@@ -576,45 +577,39 @@ function loginView(){
       <aside class="auth-panel card landing-auth-card">
         <div class="auth-panel-head">
           <h2 id="auth-title">Welcome back</h2>
-          <p id="auth-subtitle" class="muted">Sign in with your work email.</p>
+          <p id="auth-subtitle" class="muted">Owners and employees sign in with the same form.</p>
         </div>
 
         <div class="auth-switch">
           <button id="login-tab" class="active" onclick="setAuthMode('login')">Sign in</button>
-          <button id="signup-tab" onclick="setAuthMode('signup')">Create account</button>
+          <button id="signup-tab" onclick="setAuthMode('signup')">Business signup</button>
         </div>
 
-        <div id="login-box">
-          <label>Email address</label><input id="login-email" autocomplete="email" placeholder="you@business.com">
-          <label>Password</label><input id="login-password" type="password" autocomplete="current-password" placeholder="Enter password">
-          <button class="primary full auth-continue" onclick="login()">Sign in</button>
+        <form id="login-box" onsubmit="event.preventDefault();login()">
+          <label>Email address</label><input id="login-email" type="email" required autocomplete="username" placeholder="you@business.com">
+          <label>Password</label><input id="login-password" required type="password" autocomplete="current-password" placeholder="Enter password">
+          <button class="primary full auth-continue" type="submit">Sign in</button>
           <div class="auth-links clean-links">
-            <button class="linkbtn" onclick="setAuthMode('reset')">Forgot password?</button>
-            <button class="linkbtn" onclick="resendVerificationFromLogin()">Resend verification</button>
+            <button type="button" class="linkbtn" onclick="setAuthMode('reset')">Forgot password?</button>
+            <button type="button" class="linkbtn" onclick="resendVerificationFromLogin()">Resend verification</button>
           </div>
-        </div>
+        </form>
 
-        <div id="signup-box" class="hidden">
-          <label>I want to</label>
-          <select id="signup-type" onchange="updateSignupFields()">
-            <option value="create-business">Create a business workspace</option>
-            <option value="join-team">Join my workplace</option>
-          </select>
-
+        <form id="signup-box" class="hidden" onsubmit="event.preventDefault();createAccount()">
+          <input id="signup-type" type="hidden" value="create-business">
           <div id="signup-business-fields">
-            <label>Business name</label><div class="business-autocomplete"><input id="signup-business-name" autocomplete="organization" oninput="businessNameInputChanged()" onfocus="updateBusinessNameSuggestions()" onblur="setTimeout(closeBusinessSuggestionList,180)" placeholder="Type your business name"><div id="business-suggestion-list" class="business-suggestion-list hidden" role="listbox" aria-label="Business suggestions"></div></div>
-            <div class="form-grid auth-mini-grid">
-              <div><label>Industry</label><select id="signup-industry" onchange="onIndustrySelectChange()"><option>Café</option><option>Restaurant</option><option>Retail</option><option>Grocery</option><option>Fast food</option><option>Cleaning</option><option>Hospitality</option><option>Healthcare</option><option>Other</option></select><input id="signup-industry-other" class="hidden" placeholder="Enter industry type (optional)"></div>
-              <div><label>Your role</label><select id="signup-role"><option value="owner">Owner</option><option value="manager">Manager</option></select></div>
-            </div>
+            <label for="signup-business-name">Business name</label><input id="signup-business-name" autocomplete="organization" placeholder="Your business name" required>
+            <select id="signup-industry" hidden><option>Other</option></select>
+            <input id="signup-industry-other" type="hidden">
+            <select id="signup-role" hidden><option value="owner">Owner</option></select>
           </div>
 
-          <label>Full name</label><input id="signup-name" autocomplete="name" placeholder="Your full name">
-          <label>Work email</label><input id="signup-email" autocomplete="email" placeholder="you@business.com">
-          <label>Create password</label><input id="signup-password" type="password" autocomplete="new-password" placeholder="Minimum 6 characters">
-          <button class="primary full auth-continue" onclick="createAccount()">Create free account</button>
-          <p id="signup-help" class="small muted center">Owners/managers can create a free workspace. Team members can join after their email is added by a manager.</p>
-        </div>
+          <label>Full name</label><input id="signup-name" required autocomplete="name" placeholder="Your full name">
+          <label>Work email</label><input id="signup-email" type="email" required autocomplete="email" placeholder="you@business.com">
+          <label>Create password</label><input id="signup-password" type="password" autocomplete="new-password" placeholder="8+ characters, uppercase, lowercase, number, symbol" minlength="8" maxlength="128" required>
+          <button class="primary full auth-continue" type="submit">Create business account</button>
+          <p id="signup-help" class="small muted center">Employee? Open the invitation email from your workplace to create your account.</p>
+        </form>
 
         <div id="reset-box" class="hidden">
           <label>Email address</label><input id="reset-email" autocomplete="email" placeholder="you@business.com">
@@ -745,7 +740,7 @@ function setAuthMode(mode){
   if(title && subtitle){
     if(mode === "signup"){
       title.textContent = "Create your account";
-      subtitle.textContent = "Start a free workspace or join your workplace.";
+      subtitle.textContent = "Create your business. Employees join using their invitation email.";
     }else if(mode === "reset"){
       title.textContent = "Reset your password";
       subtitle.textContent = "We will send a secure reset link to your email.";
@@ -753,7 +748,7 @@ function setAuthMode(mode){
       if(loginEmail && el("reset-email")) el("reset-email").value = loginEmail;
     }else{
       title.textContent = "Welcome back";
-      subtitle.textContent = "Sign in with your work email.";
+      subtitle.textContent = "Owners and employees sign in with the same form.";
     }
   }
   if(mode === "signup") updateSignupFields();
@@ -4259,6 +4254,7 @@ async function boot(){
   if(app) app.innerHTML = `<section class="auth-wrap"><div class="auth-card card"><h2>Loading MySchedule...</h2><p class="muted">Connecting securely.</p></div></section>`;
   initFirebase();
   await waitForFirebaseAuthInitialState();
+  if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND)await Promise.race([window.MYSCHEDULE_SECURE_READY,new Promise((_resolve,reject)=>setTimeout(()=>reject(new Error('Secure application files did not load. Reload to retry.')),8000))]);
   state = await loadState();
   startAuthGuard();
   if(firebaseAuth && firebaseAuth.currentUser) startFirebaseLiveUpdates();
@@ -8426,16 +8422,14 @@ window.addEventListener('pageshow',()=>{
 
 /* v104: simple, stable employee tab navigation and session lookup */
 function currentUser(){
-  if(!state || !Array.isArray(state.users)) return null;
-  let id=currentUserId || '';
-  try{ id=id || sessionStorage.getItem(CURRENT_KEY) || ''; }catch(e){}
-  try{ id=id || localStorage.getItem(V103_PERSISTED_SESSION_KEY) || ''; }catch(e){}
-  const user=state.users.find(u=>u.id===id && u.status!=='removed' && u.status!=='inactive') || null;
-  if(user && currentUserId!==user.id){
-    currentUserId=user.id;
-    try{sessionStorage.setItem(CURRENT_KEY,user.id);}catch(e){}
-  }
-  return user;
+  if(!state||!Array.isArray(state.users))return null;
+  const auth=firebaseAuth?.currentUser;
+  if(!auth?.emailVerified)return null;
+  let id=currentUserId||'';
+  try{id=id||sessionStorage.getItem(CURRENT_KEY)||localStorage.getItem(V103_PERSISTED_SESSION_KEY)||'';}catch(_e){}
+  const user=state.users.find(u=>u.id===id&&u.status==='active'&&u.authUid===auth.uid&&normalizeEmail(u.email)===normalizeEmail(auth.email));
+  if(!user)return null;
+  currentUserId=user.id;return user;
 }
 
 function v104OpenView(view, mode){
@@ -8500,21 +8494,7 @@ async function enforceSessionSecurity(shouldRender=true, authUserOverride){
 }
 
 function v105RestoreWorkspaceUser(){
-  if(!state||!Array.isArray(state.users)) return null;
-  const candidates=[];
-  if(currentUserId) candidates.push(currentUserId);
-  try{const x=sessionStorage.getItem(CURRENT_KEY);if(x)candidates.push(x);}catch(e){}
-  try{const x=localStorage.getItem(V103_PERSISTED_SESSION_KEY);if(x)candidates.push(x);}catch(e){}
-  for(const id of candidates){
-    const user=state.users.find(u=>u.id===id&&u.status!=='removed'&&u.status!=='inactive');
-    if(user){
-      currentUserId=user.id;
-      try{sessionStorage.setItem(CURRENT_KEY,user.id);}catch(e){}
-      try{localStorage.setItem(V103_PERSISTED_SESSION_KEY,user.id);}catch(e){}
-      return user;
-    }
-  }
-  return null;
+  return currentUser();
 }
 
 function v105OpenWorkspaceView(view,mode){
@@ -9892,6 +9872,9 @@ window.setRequestQueueFilter=setRequestQueueFilter;
       const url = new URL(location.href);
       const token = url.searchParams.get('invite');
       if(token && token.length > 30){
+        if(token!==(sessionStorage.getItem(V133_INVITE_KEY)||localStorage.getItem(V133_INVITE_KEY))){
+          ['myschedule_v138_recipient_proof','myschedule_v138_invited_email','myschedule_v133_pending_access'].forEach(key=>{sessionStorage.removeItem(key);localStorage.removeItem(key);});
+        }
         sessionStorage.setItem(V133_INVITE_KEY, token);
         localStorage.setItem(V133_INVITE_KEY, token);
         url.searchParams.delete('invite');
@@ -10014,7 +9997,7 @@ window.setRequestQueueFilter=setRequestQueueFilter;
     el('signup-business-fields')?.classList.toggle('hidden',!isCreate);
     el('signup-join-fields')?.classList.toggle('hidden',isCreate);
     const help=el('signup-help');
-    if(help) help.textContent=isCreate?'Create a verified owner/manager workspace.':'Use the invitation email exactly, or enter your workplace code to send an approval request.';
+    if(help) help.textContent=isCreate?'Employee? Open your workplace invitation to join. No workplace code is needed.':'Use the invitation email exactly, or enter your workplace code to send an approval request.';
     if(!isCreate) setTimeout(v133RefreshInviteSummary,0);
   };
   async function v133RefreshInviteSummary(){
@@ -10039,50 +10022,42 @@ window.setRequestQueueFilter=setRequestQueueFilter;
   }
   window.v133RefreshInviteSummary=v133RefreshInviteSummary;
 
+  let ownerSignupRunning=false;
   createAccount = async function(){
-    const type=val('signup-type')||'create-business';
+    if(ownerSignupRunning)return;
     const name=String(val('signup-name')||'').trim();
     const email=normalizeEmail(val('signup-email'));
-    const password=cleanPassword(val('signup-password'));
-    if(!name||!isValidEmail(email)||password.length<6) return toast('Enter your name, a valid email, and a password with at least 6 characters.');
+    const password=String(val('signup-password')||'');
     const businessName=String(val('signup-business-name')||'').trim();
-    const code=String(val('signup-business-code')||'').trim();
-    const token=v133InviteToken();
-    if(type==='create-business'&&!businessName) return toast('Enter your business name.');
-    let cred=null;
+    if(!name||!isValidEmail(email)||!businessName)return toast('Enter your business name, full name and email.');
+    if(!window.MyScheduleInvitationSetupV138?.passwordStatus(password).valid)return toast('Use 8–128 characters with uppercase, lowercase, a number and a symbol.');
+    ownerSignupRunning=true;
+    const button=document.querySelector('#signup-box .auth-continue');if(button){button.disabled=true;button.textContent='Creating account…';}
+    let credential=null,workspaceSaved=false;
     try{
       const auth=requireAuth();
-      await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(()=>{});
-      cred=await auth.createUserWithEmailAndPassword(email,password);
-      await cred.user.updateProfile({displayName:name}).catch(()=>{});
-      if(type==='create-business'){
-        await v133Call('createWorkspace',{businessName,industry:selectedSignupIndustry(),role:val('signup-role')||'owner',name,country:/^America\//.test(detectedDeviceTimezone())?'Canada':'Australia',timezone:detectedDeviceTimezone()});
-      }else if(token){
-        v133SetPendingAccess({type:'invite',token,name,email,createdAt:now()});
-      }else if(code){
-        v133SetPendingAccess({type:'join',businessCode:code,name,email,createdAt:now()});
-      }else{
-        v133SetPendingAccess({type:'email_invite',name,email,createdAt:now()});
-      }
-      await cred.user.sendEmailVerification({url:window.location.href.split('#')[0]});
-      await auth.signOut(); clearCurrentSession(); setAuthMode('login');
-      toast(type==='create-business'?'Workspace created. Verify your email, then sign in.':'Account created. Verify your email, then sign in to complete the secure access request.');
+      await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+      clearCurrentSession();
+      credential=await auth.createUserWithEmailAndPassword(email,password);
+      await credential.user.updateProfile({displayName:name});
+      await v133Call('createWorkspace',{businessName,industry:'Other',role:'owner',name,country:/^America\//.test(detectedDeviceTimezone())?'Canada':'Australia',timezone:detectedDeviceTimezone()});
+      workspaceSaved=true;
+      window.showOwnerVerification();
+      await window.resendOwnerVerification();
     }catch(error){
-      console.warn('v133 account creation',error);
-      if(cred?.user && type==='create-business') await cred.user.delete().catch(()=>{});
+      if(credential?.user&&!workspaceSaved)await credential.user.delete().catch(()=>{});
       toast(firebaseErrorMessage(error)||error.message||'Account could not be created.');
-    }
+    }finally{ownerSignupRunning=false;if(button){button.disabled=false;button.textContent='Create business account';}}
   };
 
-  finishAuthLogin = async function(authUser){
-    const email=normalizeEmail(authUser?.email||'');
-    if(!authUser?.emailVerified||!email){await firebaseAuth?.signOut().catch(()=>{});clearCurrentSession();return toast('Verify your email before signing in.');}
-    let user=state.users.find(u=>u.authUid===authUser.uid&&u.status!=='removed');
-    if(!user) user=state.users.find(u=>normalizeEmail(u.email)===email&&u.status!=='removed'&&!['join_rejected','invitation_revoked'].includes(u.status));
-    if(!user){await firebaseAuth.signOut().catch(()=>{});clearCurrentSession();return toast('No approved MySchedule workplace is linked to this account.');}
-    user.authUid=authUser.uid;user.emailVerified=true;user.status='active';user.lastLoginAt=now();
-    delete user.tempPassword;delete user.localPassword;delete user.password;delete user.forcePasswordChange;
-    setCurrentSession(user.id);currentView=isManagerial(user)?'dashboard':'myshifts';render();toast('Signed in successfully.');return true;
+  finishAuthLogin = async function(authUser,membership={}){
+    if(!authUser?.emailVerified)throw new Error('Verify your email before entering a workplace.');
+    const email=normalizeEmail(authUser.email);
+    const user=state.users.find(u=>u.status==='active'&&u.authUid===authUser.uid&&normalizeEmail(u.email)===email&&(!membership.userId||u.id===membership.userId)&&(!membership.businessId||u.businessId===membership.businessId));
+    if(!user)throw new Error('No active membership matches this verified account and invitation.');
+    setCurrentSession(user.id);currentView=isManagerial(user)?'dashboard':'myshifts';
+    try{localStorage.setItem('myschedule_v103_active_user',user.id);history.replaceState(null,'',location.pathname+'#'+currentView);}catch(_e){}
+    render();toast('Signed in successfully.');return true;
   };
 
   login = async function(){
@@ -10509,7 +10484,8 @@ function v136SafeStateClone(input, maxDepth=28){
     let user=v135UserIn(data,auth);
     if(!user)throw v135Error('permission-denied','No approved workplace profile matches this email. Ask the owner or manager to add this exact email.');
     if(['removed','inactive','join_rejected','invitation_revoked'].includes(user.status))throw v135Error('permission-denied','This workplace access is not active. Contact the owner or manager.');
-    if(user.status==='join_pending')throw v135Error('failed-precondition','Your workplace join request is still awaiting approval.');
+    if(!['active','pending_verification'].includes(user.status)||user.status==='pending_verification'&&user.role!=='owner')throw v135Error('permission-denied','Open your latest invitation to activate workplace access.');
+    if(!auth.emailVerified)throw v135Error('permission-denied','Verify your email first.');
     user.authUid=auth.uid;user.emailVerified=!!auth.emailVerified;user.status='active';user.linkedAt=user.linkedAt||now();user.lastLoginAt=now();
     delete user.tempPassword;delete user.localPassword;delete user.password;delete user.forcePasswordChange;
     await v135WriteCloud(data);
@@ -10567,24 +10543,8 @@ function v136SafeStateClone(input, maxDepth=28){
     return {ok:true,token:raw,userId:profile.id,email,name,role,expiresAt,invitedByName:manager.name,businessName:workplaceName,noteId:inviteNote.id};
   }
   async function v135AcceptInvitation(data){
-    const auth=v135AuthUser();if(!auth||!auth.emailVerified)throw v135Error('failed-precondition','Verify your email before accepting the invitation.');
-    const current=await v135ReadCloud();const token=String(data.token||'');const hash=await v135Hash(token);const email=normalizeEmail(auth.email||'');
-    let invite=(current.accessInvitations||[]).find(i=>(i.id===hash||i.tokenHash===hash)&&i.status==='pending');
-    let profile=invite?(current.users||[]).find(u=>u.id===invite.userId):null;
-    if(!invite){profile=(current.users||[]).find(u=>normalizeEmail(u.email)===email&&u.status==='invited');}
-    if(!profile)throw v135Error('not-found','No pending invitation matches this verified email.');
-    if(normalizeEmail(profile.email)!==email)throw v135Error('permission-denied','Sign in with the same email address that received the invitation.');
-    if(invite?.expiresAt&&new Date(invite.expiresAt).getTime()<Date.now()){invite.status='expired';profile.status='invitation_expired';await v135WriteCloud(current);throw v135Error('deadline-exceeded','This invitation has expired. Ask the owner or manager to resend it.');}
-    Object.assign(profile,{authUid:auth.uid,emailVerified:true,status:'active',acceptedAt:now(),linkedAt:now(),accountSource:'manager_invite',activeInvitationId:''});
-    if(invite){invite.status='accepted';invite.acceptedAt=now();}
-    (current.notifications||[]).forEach(note=>{
-      if(note.userId===profile.id&&note.actionKind==='accept_invitation'&&note.requiresAction===true){
-        note.requiresAction=false;note.actionStatus='resolved';note.resolvedAt=now();note.read=true;
-      }
-    });
-    current.notifications.push(v135Notification({businessId:profile.businessId,userId:profile.id,type:'verification',subject:'Account verified and linked',message:`Your verified account is now linked to ${v135BusinessFor(current,profile)?.name||'your workplace'}.`,targetView:profile.role==='employee'?'myshifts':'dashboard'}));
-    v135NotifyManagers(current,profile.businessId,{type:'invite_accepted',subject:'Invitation accepted',message:`${profile.name} accepted the workplace invitation.`,targetView:'credentials',entityId:profile.id});
-    await v135WriteCloud(current);return {ok:true,businessId:profile.businessId,userId:profile.id,role:profile.role};
+    if(!window.MyScheduleInvitationV138)throw v135Error('unavailable','Refresh to load invitation tools.');
+    return window.MyScheduleInvitationV138.acceptInvitationAtomic(data);
   }
   async function v135SubmitJoin(data){
     const auth=v135AuthUser();if(!auth||!auth.emailVerified)throw v135Error('failed-precondition','Verify your email before sending a join request.');
@@ -10592,9 +10552,10 @@ function v136SafeStateClone(input, maxDepth=28){
     const code=String(data.businessCode||'').trim().toUpperCase();const business=(current.businesses||[]).find(b=>String(b.businessCode||b.storeCode||'').toUpperCase()===code);
     if(!business)throw v135Error('not-found','No active workplace was found for that code.');
     const email=normalizeEmail(auth.email||'');let profile=(current.users||[]).find(u=>u.businessId===business.id&&normalizeEmail(u.email)===email&&u.status!=='removed');
-    if(profile&&['active','invited','pending_verification'].includes(profile.status)){
+    if(profile&&profile.status==='active'){
       Object.assign(profile,{authUid:auth.uid,emailVerified:true,status:'active',linkedAt:now()});await v135WriteCloud(current);return {ok:true,businessName:business.name,status:'approved',alreadyApproved:true};
     }
+    if(profile&&profile.status==='invited')throw v135Error('permission-denied','Open your latest invitation email to join this workplace.');
     let request=(current.joinRequests||[]).find(r=>r.businessId===business.id&&normalizeEmail(r.email)===email&&r.status==='pending');
     if(!profile){profile={id:uuid(),businessId:business.id,name:String(data.name||auth.displayName||email),email,role:'employee',status:'join_pending',authUid:auth.uid,emailVerified:true,notifyEmail:true,notifyInApp:true,createdAt:now(),accountSource:'self_join_request'};current.users.push(profile);}
     else Object.assign(profile,{name:String(data.name||profile.name),authUid:auth.uid,emailVerified:true,status:'join_pending',accountSource:'self_join_request'});
@@ -10649,6 +10610,7 @@ function v136SafeStateClone(input, maxDepth=28){
   };
 
   loadFirebaseState=async function(){
+    if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND&&!window.MyScheduleSecureBackend)return null;
     const auth=v135AuthUser();if(!auth||!auth.emailVerified)return null;
     const payload=await window.__v135CompatCall('loadWorkspaceState');
     cloudRevision=Number(payload.revision||0);return payload.state?migrateState(payload.state):null;
@@ -10658,6 +10620,7 @@ function v136SafeStateClone(input, maxDepth=28){
     try{const result=await window.__v135CompatCall('saveWorkspaceState',{state:snapshotOverride||state});return !!result.ok;}catch(error){console.warn('v135 save',error);return false;}
   };
   startFirebaseLiveUpdates=function(){
+    if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND&&!window.MyScheduleSecureBackend)return;
     if(!initFirebase()||!firebaseDb||v135LiveStop)return;
     const auth=v135AuthUser();if(!auth)return;
     v135LiveStop=v135Ref().onSnapshot(snap=>{
@@ -10863,7 +10826,7 @@ function v136SafeStateClone(input, maxDepth=28){
   login=async function(){
     if(loginRunning)return;
     const email=normalizeEmail(readCredentialFromInput('login-email','email'));
-    const password=cleanPassword(readCredentialFromInput('login-password','password'));
+    const password=String(el('login-password')?.value||'');
     if(!isValidEmail(email)||!password)return toast('Enter a valid email address and password.');
     if(email.length>254||password.length>128)return toast('The email or password is too long. Check what was pasted and try again.');
     loginRunning=true;loginProgress(true);

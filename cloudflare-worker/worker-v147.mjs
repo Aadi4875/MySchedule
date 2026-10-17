@@ -1,15 +1,14 @@
 /**
- * MySchedule Email Gateway v147
+ * MySchedule Email Gateway v151 (Spark business isolation)
  * Cloudflare Worker for GitHub Pages + Firebase Authentication + Brevo.
  * Required secret: BREVO_API_KEY
  * Required variable: FROM_EMAIL (a verified Brevo sender)
- * Required secret: MYSCHEDULE_SERVICE_KEY (shared only with Firebase Functions)
+ * No Firebase Functions, service account or Firebase billing is required.
  * Optional variables: FROM_NAME, ALLOWED_ORIGINS, FIREBASE_PROJECT_ID
  * Optional KV binding: EMAIL_REQUESTS (idempotency + short duplicate protection)
  */
 const DEFAULT_PROJECT_ID = 'myschedule-8f213';
 const DEFAULT_ALLOWED_ORIGINS = ['https://aadi4875.github.io'];
-const FIRESTORE_DOCUMENT = 'apps/myschedule_public_launch';
 const JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
@@ -117,11 +116,29 @@ function decodeFirestoreFields(fields) {
   for (const [key, value] of Object.entries(fields || {})) out[key] = decodeFirestoreValue(value);
   return out;
 }
-async function loadWorkspace(token, projectId, fetchImpl = fetch) {
-  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${FIRESTORE_DOCUMENT}`;
-  const response = await fetchImpl(url, {headers:{authorization:`Bearer ${token}`, accept:'application/json'}});
-  if (!response.ok) throw new Error(response.status === 403 ? 'Workspace access was denied.' : `Workspace could not be loaded (${response.status}).`);
-  const document = await response.json(); return decodeFirestoreFields(document.fields || {}).state || {};
+async function loadWorkspace(token, projectId, businessId, auth, fetchImpl = fetch) {
+  const base = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/workplaces/${encodeURIComponent(businessId)}`;
+  const headers = {authorization:`Bearer ${token}`, accept:'application/json'};
+  async function read(url) {
+    const response = await fetchImpl(url, {headers});
+    if (!response.ok) throw Object.assign(new Error('This account cannot access the selected workplace.'), {status:403});
+    return decodeFirestoreFields((await response.json()).fields || {});
+  }
+  const business = await read(base);
+  const member = await read(base + '/members/' + encodeURIComponent(auth.sub));
+  if (member.status !== 'active' || !['owner','manager','employee'].includes(member.role)) throw Object.assign(new Error('Active workplace membership is required.'), {status:403});
+  let users;
+  if (member.role === 'employee') users = [await read(base + '/profiles/' + encodeURIComponent(member.profileId))];
+  else {
+    const response = await fetchImpl(base + ':runQuery', {method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({structuredQuery:{from:[{collectionId:'profiles'}]}})});
+    if (!response.ok) throw Object.assign(new Error('Workplace recipient access was denied.'), {status:403});
+    users = (await response.json()).filter(row => row.document).map(row => decodeFirestoreFields(row.document.fields || {}));
+  }
+  // Role and activity come from the protected UID membership, never a profile claim.
+  const current = users.find(p => p.id === member.profileId);
+  if (!current) throw Object.assign(new Error('Workplace profile was not found.'), {status:403});
+  current.authUid=auth.sub;current.role=member.role;current.status=member.status;
+  return {businesses:[business.business],users,accessInvitations:[]};
 }
 function activeMembership(state, auth, businessId) {
   const email = normaliseEmail(auth.email);
@@ -221,7 +238,7 @@ async function handleRequest(request, env, fetchImpl = fetch) {
       const projectId = clean(env.FIREBASE_PROJECT_ID || DEFAULT_PROJECT_ID,100);
       const token = authHeader.slice(7).trim();
       auth = await verifyFirebaseToken(token, projectId, fetchImpl);
-      const state = await loadWorkspace(token, projectId, fetchImpl);
+      const state = await loadWorkspace(token, projectId, body.businessId, auth, fetchImpl);
       membership = permissionCheck(state, auth, body);
     }
     const result = await sendBrevo(env, body, membership, fetchImpl);

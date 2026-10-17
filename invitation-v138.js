@@ -17,7 +17,7 @@
   function isoNow(){return new Date().toISOString();}
   function randomHex(bytes=24){
     const out=new Uint8Array(bytes);
-    if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(out);else for(let i=0;i<bytes;i++)out[i]=Math.floor(Math.random()*256);
+    if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(out);else throw appError('secure-random-unavailable','Use a secure browser connection to create invitations.');
     return Array.from(out,b=>b.toString(16).padStart(2,'0')).join('');
   }
   function uid(){return typeof uuid==='function'?uuid():randomHex(16);}
@@ -121,6 +121,7 @@
   }
 
   async function createInvitationAtomic(raw){
+    if(window.MyScheduleSecureBackend)return window.MyScheduleSecureBackend.apply(await window.MyScheduleSecureBackend.call('createInvitation',raw));
     if(!initFirebase()||!firebaseDb)throw appError('firebase-unavailable','Firebase is not connected. Refresh the published website and retry.');
     const auth=authUser();
     if(!auth)throw appError('unauthenticated','Sign in again before adding a team member.');
@@ -176,6 +177,7 @@
     await firebaseDb.collection(PUBLIC_INVITES).doc(hash).set({status,...extra},{merge:true});
   }
   async function getInvitation(raw){
+    if(window.MyScheduleSecureBackend)return window.MyScheduleSecureBackend.call('getInvitation',raw);
     const token=String(raw?.token||'');if(token.length<40)throw appError('invalid-argument','Invitation link is invalid.');
     const hash=await sha256(token);
     try{
@@ -188,6 +190,7 @@
     return {ok:true,status:'pending',name:'Team member',role:'employee',emailMasked:'your invited email',invitedByName:'your workplace'};
   }
   async function acceptInvitationAtomic(raw){
+    if(window.MyScheduleSecureBackend)return window.MyScheduleSecureBackend.apply(await window.MyScheduleSecureBackend.call('acceptInvitation',raw));
     const token=String(raw?.token||'');if(token.length<40)throw appError('invalid-argument','Invitation link is invalid.');
     if(!initFirebase()||!firebaseDb)throw appError('firebase-unavailable','Firebase is not connected.');
     const auth=authUser();if(!auth||!auth.emailVerified)throw appError('failed-precondition','Verify your email before accepting the invitation.');
@@ -203,6 +206,7 @@
         // The same verified identity may accept memberships in multiple businesses.
         // Access remains isolated by businessId and the active membership switcher.
         const profile=(remote.users||[]).find(u=>u.id===invite.userId);if(!profile)throw appError('not-found','The invited team profile was not found.');
+        if(profile.businessId!==invite.businessId||Core.normalizeEmail(profile.email)!==email||profile.role!==invite.role||!['employee','manager'].includes(invite.role)||profile.status!=='invited'||profile.activeInvitationId!==hash||(profile.authUid&&profile.authUid!==auth.uid))throw appError('permission-denied','The invitation does not match the current workplace membership. Ask the owner to resend it.');
         Object.assign(profile,{authUid:auth.uid,emailVerified:true,status:'active',acceptedAt,linkedAt:acceptedAt,accountSource:'manager_invite',activeInvitationId:'',updatedAt:acceptedAt});
         invite.status='accepted';invite.acceptedAt=acceptedAt;invite.acceptedByUid=auth.uid;
         (remote.notifications||[]).forEach(n=>{if(n.userId===profile.id&&n.actionKind==='accept_invitation'){n.requiresAction=false;n.actionStatus='resolved';n.resolvedAt=acceptedAt;n.read=true;}});
@@ -234,6 +238,7 @@
     }catch(error){return {status:'failed',message:`Invitation was created, but email delivery failed: ${String(error?.message||error)}`};}
   }
   async function updateDelivery(noteId,delivery){
+    if(window.MyScheduleSecureBackend)return;
     if(!noteId||!firebaseDb||!authUser())return;
     const ref=firebaseDb.collection('apps').doc(FIREBASE_DOC_PATH);const stamp=isoNow();
     try{await firebaseDb.runTransaction(async tx=>{const snap=await tx.get(ref);if(!snap.exists||!snap.data()?.state)return;const remote=ensureLatestShape(snap.data().state);const note=(remote.notifications||[]).find(n=>n.id===noteId);if(!note)return;note.emailStatus=delivery.status;note.emailDetail=Core.cleanText(delivery.message,300);note.emailUpdatedAt=stamp;const revision=Number(snap.data().revision||0)+1;tx.set(ref,{state:Core.compactState(remote),updatedAt:stamp,updatedBy:authUser().uid,revision},{merge:true});});}catch(error){console.warn('Invitation delivery status was not synced',error);}
