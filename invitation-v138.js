@@ -121,6 +121,7 @@
   }
 
   async function createInvitationAtomic(raw){
+    if(window.MyScheduleSecureBackend)return window.MyScheduleSecureBackend.apply(await window.MyScheduleSecureBackend.call('createInvitation',raw));
     if(!initFirebase()||!firebaseDb)throw appError('firebase-unavailable','Firebase is not connected. Refresh the published website and retry.');
     const auth=authUser();
     if(!auth)throw appError('unauthenticated','Sign in again before adding a team member.');
@@ -176,6 +177,7 @@
     await firebaseDb.collection(PUBLIC_INVITES).doc(hash).set({status,...extra},{merge:true});
   }
   async function getInvitation(raw){
+    if(window.MyScheduleSecureBackend)return window.MyScheduleSecureBackend.call('getInvitation',raw);
     const token=String(raw?.token||'');if(token.length<40)throw appError('invalid-argument','Invitation link is invalid.');
     const hash=await sha256(token);
     try{
@@ -188,6 +190,7 @@
     return {ok:true,status:'pending',name:'Team member',role:'employee',emailMasked:'your invited email',invitedByName:'your workplace'};
   }
   async function acceptInvitationAtomic(raw){
+    if(window.MyScheduleSecureBackend)return window.MyScheduleSecureBackend.apply(await window.MyScheduleSecureBackend.call('acceptInvitation',raw));
     const token=String(raw?.token||'');if(token.length<40)throw appError('invalid-argument','Invitation link is invalid.');
     if(!initFirebase()||!firebaseDb)throw appError('firebase-unavailable','Firebase is not connected.');
     const auth=authUser();if(!auth||!auth.emailVerified)throw appError('failed-precondition','Verify your email before accepting the invitation.');
@@ -235,6 +238,7 @@
     }catch(error){return {status:'failed',message:`Invitation was created, but email delivery failed: ${String(error?.message||error)}`};}
   }
   async function updateDelivery(noteId,delivery){
+    if(window.MyScheduleSecureBackend)return;
     if(!noteId||!firebaseDb||!authUser())return;
     const ref=firebaseDb.collection('apps').doc(FIREBASE_DOC_PATH);const stamp=isoNow();
     try{await firebaseDb.runTransaction(async tx=>{const snap=await tx.get(ref);if(!snap.exists||!snap.data()?.state)return;const remote=ensureLatestShape(snap.data().state);const note=(remote.notifications||[]).find(n=>n.id===noteId);if(!note)return;note.emailStatus=delivery.status;note.emailDetail=Core.cleanText(delivery.message,300);note.emailUpdatedAt=stamp;const revision=Number(snap.data().revision||0)+1;tx.set(ref,{state:Core.compactState(remote),updatedAt:stamp,updatedBy:authUser().uid,revision},{merge:true});});}catch(error){console.warn('Invitation delivery status was not synced',error);}

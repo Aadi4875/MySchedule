@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Backend-only storage. The Admin SDK bypasses these rules; every callable
+    // authenticates and authorizes the business and operation independently.
+    // Deploy with the callable backend and secure client, during maintenance.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

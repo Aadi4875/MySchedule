@@ -6,6 +6,7 @@ for(const file of assets){
   if(!fs.existsSync(file))throw new Error(`Missing asset: ${file}`);
   if(file.endsWith('.js'))execFileSync(process.execPath,['--check',file]);
 }
+for(const file of ['functions/core.cjs','functions/index.cjs'])execFileSync(process.execPath,['--check',file]);
 fs.mkdirSync('dist',{recursive:true});
 for(const file of ['index.html',...assets])fs.copyFileSync(file,`dist/${file}`);
 console.log(`Validated and built ${assets.length+1} static files.`);

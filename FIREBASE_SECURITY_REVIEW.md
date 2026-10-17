@@ -23,7 +23,7 @@ The user supplied the currently deployed rules on 15 October 2026. This review i
 
 ## Deployment requirements
 
-The frontend simplification in this PR remains a draft. The available GitHub connection cannot deploy Firebase rules or functions. A Firebase plugin connection has been requested so the actual project, deployed configuration and supported deployment capabilities can be inspected. Existing deployed Functions, if any, must be retrieved before replacing them.
+The frontend simplification in this PR remains a draft. The available GitHub connection cannot deploy Firebase rules or functions. The user declined a Firebase plugin connection and confirmed that Functions says “Waiting for your first deploy”. This branch now includes first-deployment backend source, a callable client adapter, replacement rules and manual instructions in FIREBASE_DEPLOYMENT.md. None have been deployed to the live Firebase project.
 
 The Authentication email action URL must point to `https://aadi4875.github.io/MySchedule/` after the handler assets are deployed. That setting fixes the separate verification-page redirect; it does not repair database authorization.
 

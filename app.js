@@ -400,6 +400,7 @@ function migrateState(data){
 }
 
 async function loadState(){
+  if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND)return migrateState(defaultState());
   let data = null;
 
   // True free cloud mode: Firebase Spark Firestore. Works from GitHub Pages/static hosting.
@@ -4253,6 +4254,7 @@ async function boot(){
   if(app) app.innerHTML = `<section class="auth-wrap"><div class="auth-card card"><h2>Loading MySchedule...</h2><p class="muted">Connecting securely.</p></div></section>`;
   initFirebase();
   await waitForFirebaseAuthInitialState();
+  if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND)await Promise.race([window.MYSCHEDULE_SECURE_READY,new Promise((_resolve,reject)=>setTimeout(()=>reject(new Error('Secure application files did not load. Reload to retry.')),8000))]);
   state = await loadState();
   startAuthGuard();
   if(firebaseAuth && firebaseAuth.currentUser) startFirebaseLiveUpdates();
@@ -10608,6 +10610,7 @@ function v136SafeStateClone(input, maxDepth=28){
   };
 
   loadFirebaseState=async function(){
+    if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND&&!window.MyScheduleSecureBackend)return null;
     const auth=v135AuthUser();if(!auth||!auth.emailVerified)return null;
     const payload=await window.__v135CompatCall('loadWorkspaceState');
     cloudRevision=Number(payload.revision||0);return payload.state?migrateState(payload.state):null;
@@ -10617,6 +10620,7 @@ function v136SafeStateClone(input, maxDepth=28){
     try{const result=await window.__v135CompatCall('saveWorkspaceState',{state:snapshotOverride||state});return !!result.ok;}catch(error){console.warn('v135 save',error);return false;}
   };
   startFirebaseLiveUpdates=function(){
+    if(window.MYSCHEDULE_REQUIRE_SECURE_BACKEND&&!window.MyScheduleSecureBackend)return;
     if(!initFirebase()||!firebaseDb||v135LiveStop)return;
     const auth=v135AuthUser();if(!auth)return;
     v135LiveStop=v135Ref().onSnapshot(snap=>{

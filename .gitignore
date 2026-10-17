@@ -4,3 +4,11 @@ dist/
 .env.local
 playwright-report/
 test-results/
+
+functions/.env*
+functions/node_modules/
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+functions/.secret*
